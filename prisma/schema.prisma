@@ -1,0 +1,172 @@
+// Prisma schema - Mapea las tablas PostgreSQL existentes
+// La aplicación Streamlit usa estas mismas tablas
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  email         String    @unique @db.VarChar(255)
+  password_hash String?   @db.VarChar(255)
+  google_sub    String?   @unique @db.VarChar(255)
+  created_at    DateTime
+  last_login_at DateTime?
+
+  // Relaciones
+  expenses            Expense[]
+  incomes             Income[]
+  expenseCategories   ExpenseCategory[]
+  incomeCategories    IncomeCategory[]
+  budgets             Budget[]
+  investments         Investment[]
+  investmentProducts  InvestmentProduct[]
+  cashSnapshots       CashSnapshot[]
+  investmentAssetTypes InvestmentAssetType[]
+
+  @@map("users")
+}
+
+model ExpenseCategory {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  name       String   @db.VarChar(100)
+  created_at DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, name])
+  @@index([user_id])
+  @@map("expense_categories")
+}
+
+model IncomeCategory {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  name       String   @db.VarChar(100)
+  created_at DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, name])
+  @@index([user_id])
+  @@map("income_categories")
+}
+
+model Expense {
+  id             Int      @id @default(autoincrement())
+  user_id        Int
+  date           DateTime @db.Date
+  amount         Decimal  @db.Decimal(12, 2)
+  category       String   @db.VarChar(100)
+  subcategory    String?  @db.VarChar(100)
+  payment_method String?  @db.VarChar(50)
+  expense_type   String?  @db.VarChar(50)
+  notes          String?  @db.Text
+  created_at     DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, date])
+  @@index([user_id, category])
+  @@map("expenses")
+}
+
+model Income {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  date       DateTime @db.Date
+  amount     Decimal  @db.Decimal(12, 2)
+  source     String?  @db.VarChar(150)
+  category   String   @db.VarChar(100)
+  notes      String?  @db.Text
+  created_at DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, date])
+  @@index([user_id, category])
+  @@map("income")
+}
+
+model Budget {
+  id             Int      @id @default(autoincrement())
+  user_id        Int
+  category       String   @db.VarChar(100)
+  monthly_amount Decimal  @default(0.00) @db.Decimal(12, 2)
+  created_at     DateTime
+  updated_at     DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, category])
+  @@index([user_id])
+  @@map("budgets")
+}
+
+model InvestmentAssetType {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  name       String   @db.VarChar(100)
+  created_at DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, name])
+  @@index([user_id])
+  @@map("investment_asset_types")
+}
+
+model InvestmentProduct {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  name       String   @db.VarChar(150)
+  asset_type String   @db.VarChar(100)
+  created_at DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, name])
+  @@index([user_id])
+  @@map("investment_products")
+}
+
+model Investment {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  date          DateTime @db.Date
+  account       String   @db.VarChar(150)
+  asset_type    String   @db.VarChar(100)
+  contribution  Decimal  @db.Decimal(12, 2)
+  current_value Decimal  @db.Decimal(12, 2)
+  notes         String?  @db.Text
+  created_at    DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, date])
+  @@index([user_id, account])
+  @@map("investments")
+}
+
+model CashSnapshot {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  date          DateTime @db.Date
+  account       String   @db.VarChar(150)
+  current_value Decimal  @db.Decimal(12, 2)
+  notes         String?  @db.Text
+  created_at    DateTime
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, date, account])
+  @@index([user_id, date])
+  @@index([user_id, account])
+  @@map("cash_snapshots")
+}
