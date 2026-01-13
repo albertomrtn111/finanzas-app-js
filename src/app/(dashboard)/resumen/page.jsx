@@ -14,6 +14,7 @@ export default function ResumenPage() {
     const [budgets, setBudgets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
 
     useEffect(() => {
         loadData();
@@ -41,24 +42,19 @@ export default function ResumenPage() {
     };
 
     // Current month data
-    const currentMonth = new Date().getMonth();
-    const isCurrentYear = selectedYear === new Date().getFullYear();
+    const isCurrentMonth = selectedYear === new Date().getFullYear() && selectedMonth === new Date().getMonth();
 
     // Filter by year
     const filteredIncomes = incomes.filter((i) => new Date(i.date).getFullYear() === selectedYear);
     const filteredExpenses = expenses.filter((e) => new Date(e.date).getFullYear() === selectedYear);
 
-    // Current month data for status
-    const currentMonthIncomes = isCurrentYear
-        ? filteredIncomes.filter((i) => new Date(i.date).getMonth() === currentMonth)
-        : [];
-    const currentMonthExpenses = isCurrentYear
-        ? filteredExpenses.filter((e) => new Date(e.date).getMonth() === currentMonth)
-        : [];
+    // Selected month data for status  
+    const currentMonthIncomes = filteredIncomes.filter((i) => new Date(i.date).getMonth() === selectedMonth);
+    const currentMonthExpenses = filteredExpenses.filter((e) => new Date(e.date).getMonth() === selectedMonth);
 
     // Previous month data for trends
-    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-    const prevMonthYear = currentMonth === 0 ? selectedYear - 1 : selectedYear;
+    const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
+    const prevMonthYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
     const prevMonthIncomes = incomes.filter((i) => {
         const d = new Date(i.date);
         return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
@@ -67,6 +63,9 @@ export default function ResumenPage() {
         const d = new Date(e.date);
         return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
     });
+
+    // Month names
+    const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
     // KPIs - Year totals
     const totalIncome = filteredIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
@@ -108,10 +107,10 @@ export default function ResumenPage() {
 
     const financialStatus = getFinancialStatus();
 
-    // Projection: if current pace continues
+    // Projected end-of-month expenses
     const dayOfMonth = new Date().getDate();
-    const daysInMonth = new Date(selectedYear, currentMonth + 1, 0).getDate();
-    const projectedExpenses = isCurrentYear && dayOfMonth > 0
+    const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    const projectedExpenses = isCurrentMonth && dayOfMonth > 0
         ? (monthExpenses / dayOfMonth) * daysInMonth
         : monthExpenses;
 
@@ -197,8 +196,8 @@ export default function ResumenPage() {
     const smartAlerts = generateSmartAlerts();
 
     // Data for monthly chart
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const monthlyData = monthNames.map((name, idx) => {
+    const monthNamesShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    const monthlyData = monthNamesShort.map((name, idx) => {
         const monthIncomes = filteredIncomes.filter((i) => new Date(i.date).getMonth() === idx);
         const monthExpenses = filteredExpenses.filter((e) => new Date(e.date).getMonth() === idx);
         const inc = monthIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
@@ -265,6 +264,16 @@ export default function ResumenPage() {
                         {allYears.length > 0 ? allYears.map((y) => (
                             <option key={y} value={y}>{y}</option>
                         )) : <option>{new Date().getFullYear()}</option>}
+                    </select>
+                    <select
+                        className="form-input form-select"
+                        style={{ width: '140px' }}
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                    >
+                        {monthNames.map((name, idx) => (
+                            <option key={idx} value={idx}>{name}</option>
+                        ))}
                     </select>
                 </div>
             </div>

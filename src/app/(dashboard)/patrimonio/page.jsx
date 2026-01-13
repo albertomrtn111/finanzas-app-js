@@ -12,12 +12,15 @@ export default function PatrimonioPage() {
 
     useEffect(() => {
         Promise.all([
-            fetch('/api/investments').then((r) => r.json()),
-            fetch('/api/cash').then((r) => r.json()),
+            fetch('/api/investments').then((r) => r.ok ? r.json() : []),
+            fetch('/api/cash').then((r) => r.ok ? r.json() : []),
         ])
             .then(([inv, cash]) => {
-                setInvestments(inv);
-                setCashSnapshots(cash);
+                setInvestments(Array.isArray(inv) ? inv : []);
+                setCashSnapshots(Array.isArray(cash) ? cash : []);
+            })
+            .catch((error) => {
+                console.error('Error loading patrimonio data:', error);
             })
             .finally(() => setLoading(false));
     }, []);

@@ -29,13 +29,15 @@ export default function EfectivoPage() {
             ]);
             if (cashRes.ok) {
                 const data = await cashRes.json();
-                setSnapshots(data);
-                if (data.length > 0 && !form.account) {
-                    setForm((f) => ({ ...f, account: data[0].account }));
+                const cashData = Array.isArray(data) ? data : [];
+                setSnapshots(cashData);
+                if (cashData.length > 0 && !form.account) {
+                    setForm((f) => ({ ...f, account: cashData[0].account }));
                 }
             }
             if (invRes.ok) {
-                setInvestments(await invRes.json());
+                const invData = await invRes.json();
+                setInvestments(Array.isArray(invData) ? invData : []);
             }
         } catch (error) {
             console.error('Error:', error);

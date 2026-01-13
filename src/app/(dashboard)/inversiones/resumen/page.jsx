@@ -14,8 +14,9 @@ export default function InversionesResumenPage() {
 
     useEffect(() => {
         fetch('/api/investments')
-            .then((res) => res.json())
-            .then(setInvestments)
+            .then((res) => res.ok ? res.json() : [])
+            .then((data) => setInvestments(Array.isArray(data) ? data : []))
+            .catch((error) => console.error('Error loading investments:', error))
             .finally(() => setLoading(false));
     }, []);
 
