@@ -53,12 +53,30 @@ export default function HomePage() {
                 fetch('/api/categories?type=expense'),
             ]);
 
-            if (incRes.ok) setIncomes(await incRes.json());
-            if (expRes.ok) setExpenses(await expRes.json());
-            if (invRes.ok) setInvestments(await invRes.json());
-            if (cashRes.ok) setCashSnapshots(await cashRes.json());
-            if (budRes.ok) setBudgets(await budRes.json());
-            if (catRes.ok) setCategories(await catRes.json());
+            if (incRes.ok) {
+                const data = await incRes.json();
+                setIncomes(Array.isArray(data) ? data : []);
+            }
+            if (expRes.ok) {
+                const data = await expRes.json();
+                setExpenses(Array.isArray(data) ? data : []);
+            }
+            if (invRes.ok) {
+                const data = await invRes.json();
+                setInvestments(Array.isArray(data) ? data : []);
+            }
+            if (cashRes.ok) {
+                const data = await cashRes.json();
+                setCashSnapshots(Array.isArray(data) ? data : []);
+            }
+            if (budRes.ok) {
+                const data = await budRes.json();
+                setBudgets(Array.isArray(data) ? data : []);
+            }
+            if (catRes.ok) {
+                const data = await catRes.json();
+                setCategories(Array.isArray(data) ? data : []);
+            }
         } catch (error) {
             console.error('Error loading data:', error);
         }
