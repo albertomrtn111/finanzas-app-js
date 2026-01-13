@@ -245,59 +245,65 @@ export default function PatrimonioPage() {
                 )}
             </div>
 
-            <div className="grid grid-2 gap-lg">
-                {/* Distribution */}
-                {distributionData.length > 0 && (
-                    <div className="chart-container">
-                        <h3 className="chart-title">Distribución del patrimonio</h3>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <PieChart>
-                                <Pie
-                                    data={distributionData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
-                                    dataKey="value"
-                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                                >
-                                    {distributionData.map((_, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip formatter={(v) => formatCurrency(v)} />
-                                <Legend />
-                            </PieChart>
-                        </ResponsiveContainer>
-                        <div className="tooltip-container" style={{ textAlign: 'center', marginTop: 'var(--spacing-sm)' }}>
-                            <span className="tooltip-trigger">ℹ️ ¿Qué significa esto?</span>
-                            <div className="tooltip-content" style={{ whiteSpace: 'normal', maxWidth: '250px' }}>
-                                {workingMoneyPct.toFixed(0)}% de tu dinero está invertido y trabajando para ti
-                            </div>
-                        </div>
+            {/* Distribution */}
+            <div className="chart-container">
+                <h3 className="chart-title">Distribución del patrimonio</h3>
+                {distributionData.every(d => d.value > 0) && distributionData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                        <PieChart>
+                            <Pie
+                                data={distributionData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={100}
+                                dataKey="value"
+                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            >
+                                {distributionData.map((_, index) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => formatCurrency(value)} />
+                            <Legend />
+                        </PieChart>
+                    </ResponsiveContainer>
+                ) : (
+                    <div className="flex-center" style={{ height: '300px' }}>
+                        <p className="text-muted">No hay datos suficientes para mostrar el gráfico</p>
                     </div>
                 )}
+                <div className="tooltip-container" style={{ textAlign: 'center', marginTop: 'var(--spacing-sm)' }}>
+                    <span className="tooltip-trigger">ℹ️ ¿Qué significa esto?</span>
+                    <div className="tooltip-content" style={{ whiteSpace: 'normal', maxWidth: '250px' }}>
+                        {workingMoneyPct.toFixed(0)}% de tu dinero está invertido y trabajando para ti
+                    </div>
+                </div>
+            </div>
 
-                {/* By Account */}
-                {allAccounts.length > 0 && (
-                    <div className="chart-container">
-                        <h3 className="chart-title">Valor por cuenta</h3>
-                        <ResponsiveContainer width="100%" height={300}>
-                            <BarChart data={allAccounts.slice(0, 8)} layout="vertical">
-                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                                <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} />
-                                <YAxis type="category" dataKey="account" width={120} />
-                                <Tooltip formatter={(v) => formatCurrency(v)} />
-                                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                    {allAccounts.slice(0, 8).map((entry, index) => (
-                                        <Cell
-                                            key={`cell-${index}`}
-                                            fill={entry.type === 'Inversión' ? '#10B981' : '#3B82F6'}
-                                        />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
+            {/* By Account */}
+            <div className="chart-container">
+                <h3 className="chart-title">Valor por cuenta</h3>
+                {allAccounts.some(a => a.value > 0) ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={allAccounts.slice(0, 8)} layout="vertical">
+                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+                            <XAxis type="number" tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
+                            <YAxis type="category" dataKey="account" width={120} />
+                            <Tooltip formatter={(value) => formatCurrency(value)} />
+                            <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                                {allAccounts.slice(0, 8).map((entry, index) => (
+                                    <Cell
+                                        key={`cell-${index}`}
+                                        fill={entry.type === 'Inversión' ? '#10B981' : '#3B82F6'}
+                                    />
+                                ))}
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                ) : (
+                    <div className="flex-center" style={{ height: '300px' }}>
+                        <p className="text-muted">No hay datos para mostrar</p>
                     </div>
                 )}
             </div>
