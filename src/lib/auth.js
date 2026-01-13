@@ -1,9 +1,14 @@
 import CredentialsProvider from 'next-auth/providers/credentials';
+import GoogleProvider from 'next-auth/providers/google';
 import bcrypt from 'bcryptjs';
 import prisma from './db';
 
 export const authOptions = {
     providers: [
+        GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+        }),
         CredentialsProvider({
             name: 'credentials',
             credentials: {
@@ -46,6 +51,44 @@ export const authOptions = {
         strategy: 'jwt',
     },
     callbacks: {
+        async signIn({ user, account }) {
+            // Handle Google OAuth - find or create user
+            if (account?.provider === 'google') {
+                try {
+                    let dbUser = await prisma.user.findUnique({
+                        where: { email: user.email }
+                    });
+
+                    if (!dbUser) {
+                        // Create new user for Google OAuth
+                        dbUser = await prisma.user.create({
+                            data: {
+                                email: user.email,
+                                google_sub: account.providerAccountId,
+                                created_at: new Date(),
+                                last_login_at: new Date(),
+                            }
+                        });
+                    } else {
+                        // Update google_sub if not set, and update last_login
+                        await prisma.user.update({
+                            where: { id: dbUser.id },
+                            data: {
+                                google_sub: dbUser.google_sub || account.providerAccountId,
+                                last_login_at: new Date(),
+                            }
+                        });
+                    }
+
+                    // Store the DB user id for the jwt callback
+                    user.id = dbUser.id.toString();
+                } catch (error) {
+                    console.error('Error in Google signIn callback:', error);
+                    return false;
+                }
+            }
+            return true;
+        },
         async jwt({ token, user }) {
             if (user) {
                 token.id = user.id;

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
 export default function ImportarPage() {
     const [type, setType] = useState('expenses');
     const [file, setFile] = useState(null);
-    const [preview, setPreview] = useState([]);
+    const [parsedRows, setParsedRows] = useState([]);
     const [importing, setImporting] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
@@ -18,7 +18,7 @@ export default function ImportarPage() {
 
         for (let i = 1; i < lines.length; i++) {
             const values = lines[i].split(',');
-            const row = {};
+            const row = { _rowNum: i };
             headers.forEach((h, idx) => {
                 row[h] = values[idx]?.trim() || '';
             });
@@ -26,6 +26,40 @@ export default function ImportarPage() {
         }
 
         return rows;
+    };
+
+    const validateRow = (row, type) => {
+        const errors = [];
+
+        // Date validation
+        const dateField = row.date || row.fecha;
+        if (!dateField) {
+            errors.push('Falta fecha');
+        } else {
+            const d = new Date(dateField);
+            if (isNaN(d.getTime())) {
+                errors.push('Fecha inválida');
+            }
+        }
+
+        // Amount validation
+        const amountField = row.amount || row.importe;
+        if (!amountField) {
+            errors.push('Falta importe');
+        } else {
+            const amount = parseFloat(amountField);
+            if (isNaN(amount) || amount <= 0) {
+                errors.push('Importe inválido');
+            }
+        }
+
+        // Category validation
+        const categoryField = row.category || row.categoria;
+        if (!categoryField) {
+            errors.push('Falta categoría');
+        }
+
+        return errors;
     };
 
     const handleFileChange = (e) => {
@@ -37,10 +71,37 @@ export default function ImportarPage() {
         reader.onload = (event) => {
             const text = event.target?.result;
             const rows = parseCSV(text);
-            setPreview(rows.slice(0, 5));
+
+            // Add validation to each row
+            const validatedRows = rows.map(row => ({
+                ...row,
+                _errors: validateRow(row, type),
+                _isValid: validateRow(row, type).length === 0
+            }));
+
+            setParsedRows(validatedRows);
         };
         reader.readAsText(selectedFile);
     };
+
+    // Calculate summary stats
+    const summary = useMemo(() => {
+        if (parsedRows.length === 0) return null;
+
+        const validRows = parsedRows.filter(r => r._isValid);
+        const invalidRows = parsedRows.filter(r => !r._isValid);
+        const totalAmount = validRows.reduce((sum, r) => {
+            const amount = parseFloat(r.amount || r.importe || 0);
+            return sum + amount;
+        }, 0);
+
+        return {
+            total: parsedRows.length,
+            valid: validRows.length,
+            invalid: invalidRows.length,
+            totalAmount
+        };
+    }, [parsedRows]);
 
     const showMessage = (type, text) => {
         setMessage({ type, text });
@@ -48,27 +109,19 @@ export default function ImportarPage() {
     };
 
     const handleImport = async () => {
-        if (!file) {
-            showMessage('error', 'Selecciona un archivo CSV');
+        const validRows = parsedRows.filter(r => r._isValid);
+
+        if (validRows.length === 0) {
+            showMessage('error', 'No hay filas válidas para importar');
             return;
         }
 
         setImporting(true);
         try {
-            const text = await file.text();
-            const rows = parseCSV(text);
-
-            if (rows.length === 0) {
-                showMessage('error', 'El archivo está vacío o tiene formato incorrecto');
-                setImporting(false);
-                return;
-            }
-
-            // Importar cada fila
             let success = 0;
             let errors = 0;
 
-            for (const row of rows) {
+            for (const row of validRows) {
                 const endpoint = type === 'expenses' ? '/api/expenses' : '/api/income';
 
                 const data =
@@ -90,7 +143,7 @@ export default function ImportarPage() {
                             notes: row.notes || row.notas,
                         };
 
-                // Crear categoría si no existe
+                // Create category if not exists
                 await fetch('/api/categories', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -109,12 +162,16 @@ export default function ImportarPage() {
 
             showMessage('success', `Importación completada: ${success} registros importados, ${errors} errores`);
             setFile(null);
-            setPreview([]);
+            setParsedRows([]);
         } catch (error) {
             console.error('Error:', error);
             showMessage('error', 'Error al procesar el archivo');
         }
         setImporting(false);
+    };
+
+    const formatCurrency = (amount) => {
+        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
     };
 
     const expectedColumns =
@@ -123,7 +180,7 @@ export default function ImportarPage() {
             : ['date/fecha', 'amount/importe', 'source/fuente', 'category/categoria', 'notes'];
 
     return (
-        <div>
+        <div className="page-container">
             <div className="page-header">
                 <h1 className="page-title">Importar datos</h1>
                 <p className="page-subtitle">Importa gastos o ingresos desde un archivo CSV</p>
@@ -140,13 +197,13 @@ export default function ImportarPage() {
                     <div className="tabs" style={{ marginBottom: '1rem' }}>
                         <button
                             className={`tab ${type === 'expenses' ? 'active' : ''}`}
-                            onClick={() => { setType('expenses'); setFile(null); setPreview([]); }}
+                            onClick={() => { setType('expenses'); setFile(null); setParsedRows([]); }}
                         >
                             Gastos
                         </button>
                         <button
                             className={`tab ${type === 'income' ? 'active' : ''}`}
-                            onClick={() => { setType('income'); setFile(null); setPreview([]); }}
+                            onClick={() => { setType('income'); setFile(null); setParsedRows([]); }}
                         >
                             Ingresos
                         </button>
@@ -168,24 +225,67 @@ export default function ImportarPage() {
                         />
                     </div>
 
-                    {preview.length > 0 && (
+                    {/* Summary Stats */}
+                    {summary && (
+                        <div className="impact-preview" style={{ marginBottom: 'var(--spacing-lg)' }}>
+                            <div className="impact-preview-title">📊 Resumen de importación</div>
+                            <div className="impact-preview-row">
+                                <span>Total filas:</span>
+                                <span className="font-semibold">{summary.total}</span>
+                            </div>
+                            <div className="impact-preview-row">
+                                <span>Filas válidas:</span>
+                                <span className="font-semibold text-success">{summary.valid}</span>
+                            </div>
+                            {summary.invalid > 0 && (
+                                <div className="impact-preview-row">
+                                    <span>Filas con errores:</span>
+                                    <span className="font-semibold text-danger">{summary.invalid}</span>
+                                </div>
+                            )}
+                            <div className="impact-preview-row" style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.5rem', marginTop: '0.5rem' }}>
+                                <span>Total a importar:</span>
+                                <span className="font-semibold">{formatCurrency(summary.totalAmount)}</span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Preview Table with Validation */}
+                    {parsedRows.length > 0 && (
                         <>
-                            <h4 className="mb-sm">Vista previa (primeras 5 filas):</h4>
-                            <div className="table-container mb-md">
+                            <h4 className="section-title">Vista previa ({parsedRows.length} filas)</h4>
+                            <div className="table-container mb-md" style={{ maxHeight: '400px', overflowY: 'auto' }}>
                                 <table className="table">
                                     <thead>
                                         <tr>
-                                            {Object.keys(preview[0]).map((key) => (
-                                                <th key={key}>{key}</th>
-                                            ))}
+                                            <th>Estado</th>
+                                            {Object.keys(parsedRows[0])
+                                                .filter(k => !k.startsWith('_'))
+                                                .map((key) => (
+                                                    <th key={key}>{key}</th>
+                                                ))}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {preview.map((row, idx) => (
-                                            <tr key={idx}>
-                                                {Object.values(row).map((val, i) => (
-                                                    <td key={i}>{val}</td>
-                                                ))}
+                                        {parsedRows.map((row, idx) => (
+                                            <tr key={idx} className={row._isValid ? 'row-valid' : 'row-error'}>
+                                                <td>
+                                                    {row._isValid ? (
+                                                        <span className="badge badge-success">✓</span>
+                                                    ) : (
+                                                        <div>
+                                                            <span className="badge badge-danger">✗</span>
+                                                            <div className="row-error-message">
+                                                                {row._errors.join(', ')}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                {Object.entries(row)
+                                                    .filter(([k]) => !k.startsWith('_'))
+                                                    .map(([key, val], i) => (
+                                                        <td key={i}>{val}</td>
+                                                    ))}
                                             </tr>
                                         ))}
                                     </tbody>
@@ -197,9 +297,14 @@ export default function ImportarPage() {
                     <button
                         className="btn btn-primary"
                         onClick={handleImport}
-                        disabled={!file || importing}
+                        disabled={!file || importing || (summary && summary.valid === 0)}
                     >
-                        {importing ? 'Importando...' : `Importar ${type === 'expenses' ? 'gastos' : 'ingresos'}`}
+                        {importing
+                            ? 'Importando...'
+                            : summary
+                                ? `Importar ${summary.valid} ${type === 'expenses' ? 'gastos' : 'ingresos'} (${formatCurrency(summary.totalAmount)})`
+                                : `Importar ${type === 'expenses' ? 'gastos' : 'ingresos'}`
+                        }
                     </button>
                 </div>
             </div>

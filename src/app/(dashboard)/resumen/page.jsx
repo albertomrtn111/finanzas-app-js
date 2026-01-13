@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    PieChart, Pie, Cell, Legend
+    PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine
 } from 'recharts';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
@@ -40,22 +40,163 @@ export default function ResumenPage() {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
     };
 
-    // Filtrar por año
+    // Current month data
+    const currentMonth = new Date().getMonth();
+    const isCurrentYear = selectedYear === new Date().getFullYear();
+
+    // Filter by year
     const filteredIncomes = incomes.filter((i) => new Date(i.date).getFullYear() === selectedYear);
     const filteredExpenses = expenses.filter((e) => new Date(e.date).getFullYear() === selectedYear);
 
-    // KPIs
+    // Current month data for status
+    const currentMonthIncomes = isCurrentYear
+        ? filteredIncomes.filter((i) => new Date(i.date).getMonth() === currentMonth)
+        : [];
+    const currentMonthExpenses = isCurrentYear
+        ? filteredExpenses.filter((e) => new Date(e.date).getMonth() === currentMonth)
+        : [];
+
+    // Previous month data for trends
+    const prevMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const prevMonthYear = currentMonth === 0 ? selectedYear - 1 : selectedYear;
+    const prevMonthIncomes = incomes.filter((i) => {
+        const d = new Date(i.date);
+        return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
+    });
+    const prevMonthExpenses = expenses.filter((e) => {
+        const d = new Date(e.date);
+        return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
+    });
+
+    // KPIs - Year totals
     const totalIncome = filteredIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
     const totalExpenses = filteredExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const savings = totalIncome - totalExpenses;
     const savingsRate = totalIncome > 0 ? (savings / totalIncome) * 100 : 0;
 
-    // Presupuesto anual
+    // KPIs - Current month
+    const monthIncome = currentMonthIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+    const monthExpenses = currentMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+    const monthSavings = monthIncome - monthExpenses;
+
+    // Previous month totals for trends
+    const prevMonthIncome = prevMonthIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+    const prevMonthExpense = prevMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+    const prevMonthSaving = prevMonthIncome - prevMonthExpense;
+
+    // Calculate trends
+    const incomeTrend = prevMonthIncome > 0 ? ((monthIncome - prevMonthIncome) / prevMonthIncome) * 100 : 0;
+    const expenseTrend = prevMonthExpense > 0 ? ((monthExpenses - prevMonthExpense) / prevMonthExpense) * 100 : 0;
+    const savingsTrend = prevMonthSaving !== 0 ? ((monthSavings - prevMonthSaving) / Math.abs(prevMonthSaving)) * 100 : 0;
+
+    // Monthly budget
     const monthlyBudget = budgets.reduce((sum, b) => sum + parseFloat(b.monthly_amount || 0), 0);
     const yearlyBudget = monthlyBudget * 12;
-    const budgetRatio = yearlyBudget > 0 ? (totalExpenses / yearlyBudget) * 100 : 0;
+    const monthBudgetRatio = monthlyBudget > 0 ? (monthExpenses / monthlyBudget) * 100 : 0;
+    const yearBudgetRatio = yearlyBudget > 0 ? (totalExpenses / yearlyBudget) * 100 : 0;
 
-    // Datos por mes para gráfico de ahorro
+    // Calculate financial status
+    const getFinancialStatus = () => {
+        if (monthBudgetRatio > 90 || monthSavings < 0) {
+            return { status: 'danger', label: 'Excedido', desc: 'Gastos por encima del presupuesto' };
+        }
+        if (monthBudgetRatio > 70 || (savingsRate > 0 && savingsRate < 10)) {
+            return { status: 'warning', label: 'Riesgo', desc: 'Acercándote al límite' };
+        }
+        return { status: 'success', label: 'Bajo control', desc: 'Finanzas saludables' };
+    };
+
+    const financialStatus = getFinancialStatus();
+
+    // Projection: if current pace continues
+    const dayOfMonth = new Date().getDate();
+    const daysInMonth = new Date(selectedYear, currentMonth + 1, 0).getDate();
+    const projectedExpenses = isCurrentYear && dayOfMonth > 0
+        ? (monthExpenses / dayOfMonth) * daysInMonth
+        : monthExpenses;
+
+    // Progress bar color
+    const getProgressColor = (ratio) => {
+        if (ratio > 90) return 'red';
+        if (ratio > 70) return 'yellow';
+        return 'green';
+    };
+
+    // Smart Alerts
+    const generateSmartAlerts = () => {
+        const alerts = [];
+
+        // Calculate average expense by category
+        const expenseByCategory = {};
+        const historicalExpenseByCategory = {};
+
+        filteredExpenses.forEach((e) => {
+            if (!expenseByCategory[e.category]) expenseByCategory[e.category] = 0;
+            expenseByCategory[e.category] += parseFloat(e.amount);
+        });
+
+        // Current month by category
+        const currentMonthByCategory = {};
+        currentMonthExpenses.forEach((e) => {
+            if (!currentMonthByCategory[e.category]) currentMonthByCategory[e.category] = 0;
+            currentMonthByCategory[e.category] += parseFloat(e.amount);
+        });
+
+        // Calculate historical monthly average
+        const monthsWithData = new Set(filteredExpenses.map(e => new Date(e.date).getMonth())).size || 1;
+
+        Object.entries(currentMonthByCategory).forEach(([category, amount]) => {
+            const avgMonthly = (expenseByCategory[category] || 0) / monthsWithData;
+            if (avgMonthly > 0 && amount > avgMonthly * 1.3) {
+                const pctOver = ((amount - avgMonthly) / avgMonthly * 100).toFixed(0);
+                alerts.push({
+                    type: 'warning',
+                    icon: '⚠️',
+                    title: `Gasto elevado en ${category}`,
+                    desc: `${pctOver}% más que tu media mensual (${formatCurrency(avgMonthly)})`
+                });
+            }
+        });
+
+        // Investment capacity
+        if (monthSavings > 0 && monthlyBudget > 0) {
+            const safeToInvest = monthSavings * 0.7; // Keep 30% as buffer
+            if (safeToInvest > 100) {
+                alerts.push({
+                    type: 'success',
+                    icon: '💡',
+                    title: 'Capacidad de inversión',
+                    desc: `Puedes invertir hasta ${formatCurrency(safeToInvest)} sin comprometer tu ahorro`
+                });
+            }
+        }
+
+        // Budget at risk
+        if (monthBudgetRatio > 70 && monthBudgetRatio < 100) {
+            alerts.push({
+                type: 'warning',
+                icon: '📊',
+                title: 'Presupuesto en riesgo',
+                desc: `Has consumido el ${monthBudgetRatio.toFixed(0)}% del presupuesto mensual`
+            });
+        }
+
+        // Good savings rate
+        if (savingsRate > 20) {
+            alerts.push({
+                type: 'success',
+                icon: '🎯',
+                title: 'Excelente tasa de ahorro',
+                desc: `Estás ahorrando el ${savingsRate.toFixed(0)}% de tus ingresos`
+            });
+        }
+
+        return alerts.slice(0, 4); // Max 4 alerts
+    };
+
+    const smartAlerts = generateSmartAlerts();
+
+    // Data for monthly chart
     const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const monthlyData = monthNames.map((name, idx) => {
         const monthIncomes = filteredIncomes.filter((i) => new Date(i.date).getMonth() === idx);
@@ -65,7 +206,12 @@ export default function ResumenPage() {
         return { name, income: inc, expenses: exp, savings: inc - exp };
     }).filter((d) => d.income > 0 || d.expenses > 0);
 
-    // Datos por categoría (gastos)
+    // Savings target line (average monthly savings goal)
+    const avgMonthlySavingsTarget = monthlyBudget > 0
+        ? (monthIncome - monthlyBudget)
+        : monthSavings;
+
+    // Category data
     const expenseByCategory = {};
     filteredExpenses.forEach((e) => {
         if (!expenseByCategory[e.category]) expenseByCategory[e.category] = 0;
@@ -75,7 +221,7 @@ export default function ResumenPage() {
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value);
 
-    // Gasto fijo vs variable
+    // Fixed vs Variable
     const expenseByType = { Fijo: 0, Variable: 0 };
     filteredExpenses.forEach((e) => {
         const type = e.expense_type || 'Variable';
@@ -83,7 +229,7 @@ export default function ResumenPage() {
     });
     const typeData = Object.entries(expenseByType).map(([name, value]) => ({ name, value }));
 
-    // Años disponibles
+    // Available years
     const allYears = [...new Set([
         ...incomes.map((i) => new Date(i.date).getFullYear()),
         ...expenses.map((e) => new Date(e.date).getFullYear()),
@@ -98,78 +244,150 @@ export default function ResumenPage() {
     }
 
     return (
-        <div>
-            <div className="page-header flex-between">
+        <div className="page-container">
+            {/* Status Header */}
+            <div className="status-header">
                 <div>
-                    <h1 className="page-title">Resumen de finanzas</h1>
-                    <p className="page-subtitle">Vista general de tus ingresos, gastos y ahorro</p>
+                    <div className="status-header-title">Estado financiero de este mes</div>
+                    <div className="status-header-subtitle">{financialStatus.desc}</div>
                 </div>
-                <select
-                    className="form-input form-select"
-                    style={{ width: '150px' }}
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                >
-                    {allYears.length > 0 ? allYears.map((y) => (
-                        <option key={y} value={y}>{y}</option>
-                    )) : <option>{new Date().getFullYear()}</option>}
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div className={`status-badge ${financialStatus.status}`}>
+                        <span className="status-badge-icon"></span>
+                        {financialStatus.label}
+                    </div>
+                    <select
+                        className="form-input form-select"
+                        style={{ width: '120px' }}
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                    >
+                        {allYears.length > 0 ? allYears.map((y) => (
+                            <option key={y} value={y}>{y}</option>
+                        )) : <option>{new Date().getFullYear()}</option>}
+                    </select>
+                </div>
             </div>
 
-            {/* KPIs */}
+            {/* Enhanced KPIs */}
             <div className="kpi-grid">
-                <div className="kpi-card">
-                    <div className="kpi-label">Ingresos {selectedYear}</div>
-                    <div className="kpi-value text-success">{formatCurrency(totalIncome)}</div>
-                </div>
-                <div className="kpi-card">
-                    <div className="kpi-label">Gastos {selectedYear}</div>
-                    <div className="kpi-value text-danger">{formatCurrency(totalExpenses)}</div>
-                </div>
-                <div className="kpi-card">
-                    <div className="kpi-label">Ahorro {selectedYear}</div>
-                    <div className={`kpi-value ${savings >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                        {formatCurrency(savings)}
+                <div className="kpi-card-enhanced">
+                    <div className="kpi-label">Ingresos (este mes)</div>
+                    <div className="kpi-main">
+                        <div className="kpi-value text-success">{formatCurrency(monthIncome)}</div>
                     </div>
+                    {prevMonthIncome > 0 && (
+                        <div className="kpi-trend">
+                            <span className={`trend ${incomeTrend >= 0 ? 'trend-up' : 'trend-down'}`}>
+                                {Math.abs(incomeTrend).toFixed(0)}% vs mes anterior
+                            </span>
+                        </div>
+                    )}
                 </div>
-                <div className="kpi-card">
-                    <div className="kpi-label">Tasa de ahorro</div>
-                    <div className={`kpi-value ${savingsRate >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                        {savingsRate.toFixed(1)}%
+
+                <div className="kpi-card-enhanced">
+                    <div className="kpi-label">Gastos (este mes)</div>
+                    <div className="kpi-main">
+                        <div className="kpi-value text-danger">{formatCurrency(monthExpenses)}</div>
+                    </div>
+                    {prevMonthExpense > 0 && (
+                        <div className="kpi-trend">
+                            <span className={`trend ${expenseTrend <= 0 ? 'trend-up' : 'trend-down'}`}>
+                                {Math.abs(expenseTrend).toFixed(0)}% vs mes anterior
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                <div className="kpi-card-enhanced">
+                    <div className="kpi-label">Ahorro (este mes)</div>
+                    <div className="kpi-main">
+                        <div className={`kpi-value ${monthSavings >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
+                            {formatCurrency(monthSavings)}
+                        </div>
+                    </div>
+                    {prevMonthSaving !== 0 && (
+                        <div className="kpi-trend">
+                            <span className={`trend ${savingsTrend >= 0 ? 'trend-up' : 'trend-down'}`}>
+                                {Math.abs(savingsTrend).toFixed(0)}% vs mes anterior
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                <div className="kpi-card-enhanced">
+                    <div className="kpi-label">Tasa de ahorro ({selectedYear})</div>
+                    <div className="kpi-main">
+                        <div className={`kpi-value ${savingsRate >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
+                            {savingsRate.toFixed(1)}%
+                        </div>
+                    </div>
+                    <div className="kpi-trend">
+                        <span className="text-muted text-sm">
+                            Ahorro total: {formatCurrency(savings)}
+                        </span>
                     </div>
                 </div>
             </div>
 
-            {/* Presupuesto vs Gasto */}
-            {yearlyBudget > 0 && (
+            {/* Budget Progress with Zones */}
+            {monthlyBudget > 0 && (
                 <div className="card mb-lg">
                     <div className="card-body">
-                        <h3 style={{ marginBottom: '1rem' }}>Presupuesto vs gasto real</h3>
+                        <h3 className="section-title">Presupuesto mensual</h3>
                         <div className="grid grid-3 gap-md mb-md">
                             <div>
-                                <div className="text-muted text-sm">Presupuesto anual</div>
-                                <div className="font-semibold">{formatCurrency(yearlyBudget)}</div>
+                                <div className="text-muted text-sm">Presupuesto</div>
+                                <div className="font-semibold">{formatCurrency(monthlyBudget)}</div>
                             </div>
                             <div>
-                                <div className="text-muted text-sm">Gasto real</div>
-                                <div className="font-semibold">{formatCurrency(totalExpenses)}</div>
+                                <div className="text-muted text-sm">Gastado</div>
+                                <div className="font-semibold">{formatCurrency(monthExpenses)}</div>
                             </div>
                             <div>
-                                <div className="text-muted text-sm">% consumido</div>
-                                <div className="font-semibold">{budgetRatio.toFixed(1)}%</div>
+                                <div className="text-muted text-sm">Disponible</div>
+                                <div className={`font-semibold ${monthlyBudget - monthExpenses >= 0 ? 'text-success' : 'text-danger'}`}>
+                                    {formatCurrency(monthlyBudget - monthExpenses)}
+                                </div>
                             </div>
                         </div>
-                        <div className="progress" style={{ height: '12px' }}>
+                        <div className="progress-zoned">
                             <div
-                                className={`progress-bar ${budgetRatio > 100 ? 'danger' : budgetRatio > 80 ? 'warning' : ''}`}
-                                style={{ width: `${Math.min(budgetRatio, 100)}%` }}
+                                className={`progress-zoned-bar ${getProgressColor(monthBudgetRatio)}`}
+                                style={{ width: `${Math.min(monthBudgetRatio, 100)}%` }}
                             />
+                        </div>
+                        <div className="projection-text">
+                            📈 Si mantienes este ritmo, cerrarás el mes con un gasto de {formatCurrency(projectedExpenses)}
+                            {projectedExpenses > monthlyBudget && (
+                                <span className="text-danger"> (superarás el presupuesto)</span>
+                            )}
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Gráfico de ahorro mensual */}
+            {/* Smart Alerts */}
+            {smartAlerts.length > 0 && (
+                <div className="card mb-lg">
+                    <div className="card-body">
+                        <h3 className="section-title">💡 Alertas inteligentes</h3>
+                        <div className="smart-alerts">
+                            {smartAlerts.map((alert, idx) => (
+                                <div key={idx} className={`smart-alert ${alert.type}`}>
+                                    <span className="smart-alert-icon">{alert.icon}</span>
+                                    <div className="smart-alert-content">
+                                        <div className="smart-alert-title">{alert.title}</div>
+                                        <div className="smart-alert-desc">{alert.desc}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Monthly Savings Chart with Target Line */}
             {monthlyData.length > 0 && (
                 <div className="chart-container">
                     <h3 className="chart-title">Evolución mensual del ahorro</h3>
@@ -182,17 +400,30 @@ export default function ResumenPage() {
                                 formatter={(value) => formatCurrency(value)}
                                 contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}
                             />
-                            <Bar dataKey="savings" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                            <ReferenceLine
+                                y={avgMonthlySavingsTarget}
+                                stroke={avgMonthlySavingsTarget > 0 ? "#10B981" : "#EF4444"}
+                                strokeDasharray="5 5"
+                                label={{ value: 'Objetivo', fill: 'var(--text-muted)', fontSize: 12 }}
+                            />
+                            <Bar dataKey="savings" radius={[4, 4, 0, 0]}>
+                                {monthlyData.map((entry, index) => (
+                                    <Cell
+                                        key={`cell-${index}`}
+                                        fill={entry.savings >= 0 ? '#3B82F6' : '#EF4444'}
+                                    />
+                                ))}
+                            </Bar>
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
             )}
 
             <div className="grid grid-2 gap-lg">
-                {/* Gasto por categoría */}
+                {/* Category Chart */}
                 {categoryData.length > 0 && (
                     <div className="chart-container">
-                        <h3 className="chart-title">Gastos por categoría</h3>
+                        <h3 className="chart-title">Gastos por categoría ({selectedYear})</h3>
                         <ResponsiveContainer width="100%" height={300}>
                             <PieChart>
                                 <Pie
@@ -214,10 +445,10 @@ export default function ResumenPage() {
                     </div>
                 )}
 
-                {/* Fijo vs Variable */}
+                {/* Fixed vs Variable */}
                 {typeData.length > 0 && (
                     <div className="chart-container">
-                        <h3 className="chart-title">Gasto fijo vs variable</h3>
+                        <h3 className="chart-title">Gasto fijo vs variable ({selectedYear})</h3>
                         <ResponsiveContainer width="100%" height={300}>
                             <PieChart>
                                 <Pie
@@ -238,6 +469,37 @@ export default function ResumenPage() {
                         </ResponsiveContainer>
                     </div>
                 )}
+            </div>
+
+            {/* Year Summary */}
+            <div className="card mt-lg">
+                <div className="card-header">
+                    <h3>Resumen anual {selectedYear}</h3>
+                </div>
+                <div className="card-body">
+                    <div className="grid grid-4 gap-md">
+                        <div>
+                            <div className="text-muted text-sm">Total ingresos</div>
+                            <div className="font-semibold text-success">{formatCurrency(totalIncome)}</div>
+                        </div>
+                        <div>
+                            <div className="text-muted text-sm">Total gastos</div>
+                            <div className="font-semibold text-danger">{formatCurrency(totalExpenses)}</div>
+                        </div>
+                        <div>
+                            <div className="text-muted text-sm">Ahorro neto</div>
+                            <div className={`font-semibold ${savings >= 0 ? 'text-success' : 'text-danger'}`}>
+                                {formatCurrency(savings)}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-muted text-sm">% presupuesto usado</div>
+                            <div className={`font-semibold ${yearBudgetRatio > 100 ? 'text-danger' : yearBudgetRatio > 80 ? 'text-warning' : ''}`}>
+                                {yearBudgetRatio.toFixed(1)}%
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     );
