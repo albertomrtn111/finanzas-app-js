@@ -33,11 +33,20 @@ export default function PatrimonioPage() {
         return <div className="flex-center" style={{ minHeight: '400px' }}><div className="spinner"></div></div>;
     }
 
+    const safeFloat = (val) => {
+        const parsed = parseFloat(val);
+        return isNaN(parsed) ? 0 : parsed;
+    };
+
     // Calculate investment value per account (latest record)
     const investmentsByAccount = useMemo(() => {
         const accounts = {};
         investments.forEach((inv) => {
-            if (!accounts[inv.account] || new Date(inv.date) > new Date(accounts[inv.account].date)) {
+            if (!inv.account) return;
+            const invDate = new Date(inv.date);
+            if (isNaN(invDate.getTime())) return;
+
+            if (!accounts[inv.account] || invDate > new Date(accounts[inv.account].date)) {
                 accounts[inv.account] = inv;
             }
         });
@@ -48,27 +57,32 @@ export default function PatrimonioPage() {
     const contributionsByAccount = useMemo(() => {
         const accounts = {};
         investments.forEach((inv) => {
+            if (!inv.account) return;
             if (!accounts[inv.account]) accounts[inv.account] = 0;
-            accounts[inv.account] += parseFloat(inv.contribution);
+            accounts[inv.account] += safeFloat(inv.contribution);
         });
         return accounts;
     }, [investments]);
 
-    const totalInvestments = Object.values(investmentsByAccount).reduce((sum, inv) => sum + parseFloat(inv.current_value), 0);
+    const totalInvestments = Object.values(investmentsByAccount).reduce((sum, inv) => sum + safeFloat(inv.current_value), 0);
     const totalContributions = Object.values(contributionsByAccount).reduce((sum, c) => sum + c, 0);
 
     // Calculate cash per account (latest record)
     const cashByAccount = useMemo(() => {
         const accounts = {};
         cashSnapshots.forEach((snap) => {
-            if (!accounts[snap.account] || new Date(snap.date) > new Date(accounts[snap.account].date)) {
+            if (!snap.account) return;
+            const snapDate = new Date(snap.date);
+            if (isNaN(snapDate.getTime())) return;
+
+            if (!accounts[snap.account] || snapDate > new Date(accounts[snap.account].date)) {
                 accounts[snap.account] = snap;
             }
         });
         return accounts;
     }, [cashSnapshots]);
 
-    const totalCash = Object.values(cashByAccount).reduce((sum, snap) => sum + parseFloat(snap.current_value), 0);
+    const totalCash = Object.values(cashByAccount).reduce((sum, snap) => sum + safeFloat(snap.current_value), 0);
     const totalPatrimonio = totalInvestments + totalCash;
 
     // Calculate first recorded patrimony for growth
@@ -76,22 +90,22 @@ export default function PatrimonioPage() {
         const allDates = [
             ...investments.map(i => new Date(i.date)),
             ...cashSnapshots.map(c => new Date(c.date))
-        ].sort((a, b) => a - b);
+        ].filter(d => !isNaN(d.getTime())).sort((a, b) => a - b);
 
         if (allDates.length === 0) return 0;
 
         const firstMonth = allDates[0];
         const firstMonthInv = investments.filter(i => {
             const d = new Date(i.date);
-            return d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
+            return !isNaN(d.getTime()) && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
         });
         const firstMonthCash = cashSnapshots.filter(c => {
             const d = new Date(c.date);
-            return d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
+            return !isNaN(d.getTime()) && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
         });
 
-        const invValue = firstMonthInv.reduce((sum, i) => sum + parseFloat(i.current_value), 0);
-        const cashValue = firstMonthCash.reduce((sum, c) => sum + parseFloat(c.current_value), 0);
+        const invValue = firstMonthInv.reduce((sum, i) => sum + safeFloat(i.current_value), 0);
+        const cashValue = firstMonthCash.reduce((sum, c) => sum + safeFloat(c.current_value), 0);
 
         return invValue + cashValue;
     }, [investments, cashSnapshots]);
@@ -116,7 +130,7 @@ export default function PatrimonioPage() {
 
         Object.entries(investmentsByAccount).forEach(([account, inv]) => {
             const contrib = contributionsByAccount[account] || 0;
-            const value = parseFloat(inv.current_value);
+            const value = safeFloat(inv.current_value);
             const gain = value - contrib;
             const returnPct = contrib !== 0 ? (gain / contrib) * 100 : 0;
 
@@ -132,7 +146,7 @@ export default function PatrimonioPage() {
         });
 
         Object.entries(cashByAccount).forEach(([account, snap]) => {
-            const value = parseFloat(snap.current_value);
+            const value = safeFloat(snap.current_value);
             accounts.push({
                 type: 'Efectivo',
                 account,
