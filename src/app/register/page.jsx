@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function RegisterPage() {
+    const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [password2, setPassword2] = useState('');
@@ -28,13 +29,18 @@ export default function RegisterPage() {
             return;
         }
 
+        if (!name.trim()) {
+            setError('El nombre es obligatorio');
+            return;
+        }
+
         setLoading(true);
 
         try {
             const res = await fetch('/api/auth/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password }),
+                body: JSON.stringify({ name, email, password }),
             });
 
             const data = await res.json();
@@ -76,6 +82,21 @@ export default function RegisterPage() {
                 )}
 
                 <form onSubmit={handleSubmit}>
+                    <div className="form-group">
+                        <label className="form-label" htmlFor="name">
+                            Nombre
+                        </label>
+                        <input
+                            id="name"
+                            type="text"
+                            className="form-input"
+                            placeholder="Tu nombre"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            required
+                        />
+                    </div>
+
                     <div className="form-group">
                         <label className="form-label" htmlFor="email">
                             Email

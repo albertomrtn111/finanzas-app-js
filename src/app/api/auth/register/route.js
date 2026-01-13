@@ -4,11 +4,11 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request) {
     try {
-        const { email, password } = await request.json();
+        const { email, password, name } = await request.json();
 
-        if (!email || !password) {
+        if (!email || !password || !name) {
             return NextResponse.json(
-                { error: 'Email y contraseña son obligatorios' },
+                { error: 'Nombre, email y contraseña son obligatorios' },
                 { status: 400 }
             );
         }
@@ -33,6 +33,7 @@ export async function POST(request) {
         // Crear usuario
         const user = await prisma.user.create({
             data: {
+                name: name.trim(),
                 email: emailNormalized,
                 password_hash,
                 created_at: new Date(),
@@ -41,7 +42,7 @@ export async function POST(request) {
 
         return NextResponse.json({
             message: 'Cuenta creada correctamente',
-            user: { id: user.id, email: user.email }
+            user: { id: user.id, email: user.email, name: user.name }
         });
 
     } catch (error) {

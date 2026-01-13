@@ -18,6 +18,7 @@ export default function HomePage() {
     const [showIncomeModal, setShowIncomeModal] = useState(false);
     const [showExpenseModal, setShowExpenseModal] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [userName, setUserName] = useState('Alberto'); // Default fallback
 
     // Form states for quick entry
     const [incomeForm, setIncomeForm] = useState({
@@ -44,13 +45,14 @@ export default function HomePage() {
     const loadData = async () => {
         setLoading(true);
         try {
-            const [incRes, expRes, invRes, cashRes, budRes, catRes] = await Promise.all([
+            const [incRes, expRes, invRes, cashRes, budRes, catRes, sessionRes] = await Promise.all([
                 fetch('/api/income'),
                 fetch('/api/expenses'),
                 fetch('/api/investments'),
                 fetch('/api/cash'),
                 fetch('/api/budgets'),
                 fetch('/api/categories?type=expense'),
+                fetch('/api/auth/session'),
             ]);
 
             if (incRes.ok) {
@@ -76,6 +78,12 @@ export default function HomePage() {
             if (catRes.ok) {
                 const data = await catRes.json();
                 setCategories(Array.isArray(data) ? data : []);
+            }
+            if (sessionRes.ok) {
+                const session = await sessionRes.json();
+                if (session?.user?.name) {
+                    setUserName(session.user.name);
+                }
             }
         } catch (error) {
             console.error('Error loading data:', error);
@@ -236,7 +244,7 @@ export default function HomePage() {
             {/* Header */}
             <div className="dashboard-header">
                 <div className="dashboard-greeting">
-                    <h1>Hola, Alberto 👋</h1>
+                    <h1>Hola, {userName} 👋</h1>
                     <p>Aquí tienes el resumen de tu dinero este mes</p>
                     <div className="dashboard-meta">
                         Última actualización: hoy {new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}

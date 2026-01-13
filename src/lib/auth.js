@@ -43,6 +43,7 @@ export const authOptions = {
                 return {
                     id: user.id.toString(),
                     email: user.email,
+                    name: user.name,
                 };
             }
         })
@@ -64,6 +65,7 @@ export const authOptions = {
                         dbUser = await prisma.user.create({
                             data: {
                                 email: user.email,
+                                name: user.name,
                                 google_sub: account.providerAccountId,
                                 created_at: new Date(),
                                 last_login_at: new Date(),
@@ -74,6 +76,7 @@ export const authOptions = {
                         await prisma.user.update({
                             where: { id: dbUser.id },
                             data: {
+                                name: dbUser.name ? undefined : user.name, // Save name if missing
                                 google_sub: dbUser.google_sub || account.providerAccountId,
                                 last_login_at: new Date(),
                             }
@@ -82,6 +85,7 @@ export const authOptions = {
 
                     // Store the DB user id for the jwt callback
                     user.id = dbUser.id.toString();
+                    user.name = dbUser.name || user.name;
                 } catch (error) {
                     console.error('Error in Google signIn callback:', error);
                     return false;
@@ -92,12 +96,14 @@ export const authOptions = {
         async jwt({ token, user }) {
             if (user) {
                 token.id = user.id;
+                token.name = user.name;
             }
             return token;
         },
         async session({ session, token }) {
             if (session.user) {
                 session.user.id = token.id;
+                session.user.name = token.name;
             }
             return session;
         }

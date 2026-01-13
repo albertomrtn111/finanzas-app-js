@@ -1,52 +1,74 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import Link from 'next/link';
+import {
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    PieChart, Pie, Cell, Legend
+} from 'recharts';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+
+// Safe number parser - prevents NaN from propagating
+const safeFloat = (val) => {
+    if (val === null || val === undefined) return 0;
+    const parsed = parseFloat(val);
+    return isNaN(parsed) || !isFinite(parsed) ? 0 : parsed;
+};
+
+// Safe date parser
+const safeDate = (val) => {
+    if (!val) return null;
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+};
 
 export default function PatrimonioPage() {
     const [investments, setInvestments] = useState([]);
     const [cashSnapshots, setCashSnapshots] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
-        Promise.all([
-            fetch('/api/investments').then((r) => r.ok ? r.json() : []),
-            fetch('/api/cash').then((r) => r.ok ? r.json() : []),
-        ])
-            .then(([inv, cash]) => {
-                setInvestments(Array.isArray(inv) ? inv : []);
-                setCashSnapshots(Array.isArray(cash) ? cash : []);
-            })
-            .catch((error) => {
-                console.error('Error loading patrimonio data:', error);
-            })
-            .finally(() => setLoading(false));
+        const loadData = async () => {
+            try {
+                const [invRes, cashRes] = await Promise.all([
+                    fetch('/api/investments'),
+                    fetch('/api/cash'),
+                ]);
+
+                const invData = invRes.ok ? await invRes.json() : [];
+                const cashData = cashRes.ok ? await cashRes.json() : [];
+
+                setInvestments(Array.isArray(invData) ? invData : []);
+                setCashSnapshots(Array.isArray(cashData) ? cashData : []);
+            } catch (err) {
+                console.error('Error loading patrimonio data:', err);
+                setError('Error al cargar los datos');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadData();
     }, []);
 
     const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
-    };
-
-    if (loading) {
-        return <div className="flex-center" style={{ minHeight: '400px' }}><div className="spinner"></div></div>;
-    }
-
-    const safeFloat = (val) => {
-        const parsed = parseFloat(val);
-        return isNaN(parsed) ? 0 : parsed;
+        const safeAmount = safeFloat(amount);
+        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(safeAmount);
     };
 
     // Calculate investment value per account (latest record)
     const investmentsByAccount = useMemo(() => {
+        if (!Array.isArray(investments)) return {};
         const accounts = {};
         investments.forEach((inv) => {
-            if (!inv.account) return;
-            const invDate = new Date(inv.date);
-            if (isNaN(invDate.getTime())) return;
+            if (!inv || !inv.account) return;
+            const invDate = safeDate(inv.date);
+            if (!invDate) return;
 
-            if (!accounts[inv.account] || invDate > new Date(accounts[inv.account].date)) {
+            const existingDate = accounts[inv.account] ? safeDate(accounts[inv.account].date) : null;
+            if (!existingDate || invDate > existingDate) {
                 accounts[inv.account] = inv;
             }
         });
@@ -55,57 +77,66 @@ export default function PatrimonioPage() {
 
     // Calculate contributions per account
     const contributionsByAccount = useMemo(() => {
+        if (!Array.isArray(investments)) return {};
         const accounts = {};
         investments.forEach((inv) => {
-            if (!inv.account) return;
+            if (!inv || !inv.account) return;
             if (!accounts[inv.account]) accounts[inv.account] = 0;
             accounts[inv.account] += safeFloat(inv.contribution);
         });
         return accounts;
     }, [investments]);
 
-    const totalInvestments = Object.values(investmentsByAccount).reduce((sum, inv) => sum + safeFloat(inv.current_value), 0);
-    const totalContributions = Object.values(contributionsByAccount).reduce((sum, c) => sum + c, 0);
+    const totalInvestments = Object.values(investmentsByAccount).reduce(
+        (sum, inv) => sum + safeFloat(inv?.current_value), 0
+    );
+    const totalContributions = Object.values(contributionsByAccount).reduce(
+        (sum, c) => sum + safeFloat(c), 0
+    );
 
     // Calculate cash per account (latest record)
     const cashByAccount = useMemo(() => {
+        if (!Array.isArray(cashSnapshots)) return {};
         const accounts = {};
         cashSnapshots.forEach((snap) => {
-            if (!snap.account) return;
-            const snapDate = new Date(snap.date);
-            if (isNaN(snapDate.getTime())) return;
+            if (!snap || !snap.account) return;
+            const snapDate = safeDate(snap.date);
+            if (!snapDate) return;
 
-            if (!accounts[snap.account] || snapDate > new Date(accounts[snap.account].date)) {
+            const existingDate = accounts[snap.account] ? safeDate(accounts[snap.account].date) : null;
+            if (!existingDate || snapDate > existingDate) {
                 accounts[snap.account] = snap;
             }
         });
         return accounts;
     }, [cashSnapshots]);
 
-    const totalCash = Object.values(cashByAccount).reduce((sum, snap) => sum + safeFloat(snap.current_value), 0);
+    const totalCash = Object.values(cashByAccount).reduce(
+        (sum, snap) => sum + safeFloat(snap?.current_value), 0
+    );
     const totalPatrimonio = totalInvestments + totalCash;
 
     // Calculate first recorded patrimony for growth
     const firstPatrimony = useMemo(() => {
         const allDates = [
-            ...investments.map(i => new Date(i.date)),
-            ...cashSnapshots.map(c => new Date(c.date))
-        ].filter(d => !isNaN(d.getTime())).sort((a, b) => a - b);
+            ...investments.map(i => safeDate(i?.date)),
+            ...cashSnapshots.map(c => safeDate(c?.date))
+        ].filter(d => d !== null).sort((a, b) => a - b);
 
         if (allDates.length === 0) return 0;
 
         const firstMonth = allDates[0];
         const firstMonthInv = investments.filter(i => {
-            const d = new Date(i.date);
-            return !isNaN(d.getTime()) && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
+            const d = safeDate(i?.date);
+            return d && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
         });
         const firstMonthCash = cashSnapshots.filter(c => {
-            const d = new Date(c.date);
-            return !isNaN(d.getTime()) && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
+            const d = safeDate(c?.date);
+            return d && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
         });
 
-        const invValue = firstMonthInv.reduce((sum, i) => sum + safeFloat(i.current_value), 0);
-        const cashValue = firstMonthCash.reduce((sum, c) => sum + safeFloat(c.current_value), 0);
+        const invValue = firstMonthInv.reduce((sum, i) => sum + safeFloat(i?.current_value), 0);
+        const cashValue = firstMonthCash.reduce((sum, c) => sum + safeFloat(c?.current_value), 0);
 
         return invValue + cashValue;
     }, [investments, cashSnapshots]);
@@ -118,7 +149,7 @@ export default function PatrimonioPage() {
     // Working money percentage (investments / total)
     const workingMoneyPct = totalPatrimonio > 0 ? (totalInvestments / totalPatrimonio) * 100 : 0;
 
-    // Distribution
+    // Distribution data for pie chart
     const distributionData = [
         { name: 'Inversiones', value: totalInvestments },
         { name: 'Efectivo', value: totalCash },
@@ -129,8 +160,8 @@ export default function PatrimonioPage() {
         const accounts = [];
 
         Object.entries(investmentsByAccount).forEach(([account, inv]) => {
-            const contrib = contributionsByAccount[account] || 0;
-            const value = safeFloat(inv.current_value);
+            const contrib = safeFloat(contributionsByAccount[account]);
+            const value = safeFloat(inv?.current_value);
             const gain = value - contrib;
             const returnPct = contrib !== 0 ? (gain / contrib) * 100 : 0;
 
@@ -140,13 +171,13 @@ export default function PatrimonioPage() {
                 value,
                 contrib,
                 gain,
-                returnPct,
+                returnPct: isFinite(returnPct) ? returnPct : 0,
                 weight: totalPatrimonio > 0 ? (value / totalPatrimonio) * 100 : 0
             });
         });
 
         Object.entries(cashByAccount).forEach(([account, snap]) => {
-            const value = safeFloat(snap.current_value);
+            const value = safeFloat(snap?.current_value);
             accounts.push({
                 type: 'Efectivo',
                 account,
@@ -164,22 +195,80 @@ export default function PatrimonioPage() {
     // Calculate YTD if we have January data
     const ytdGrowth = useMemo(() => {
         const currentYear = new Date().getFullYear();
-        const januarySnapshots = cashSnapshots.filter(
-            (s) => new Date(s.date).getFullYear() === currentYear && new Date(s.date).getMonth() === 0
-        );
-        const januaryInvestments = investments.filter(
-            (i) => new Date(i.date).getFullYear() === currentYear && new Date(i.date).getMonth() === 0
-        );
+        const januarySnapshots = cashSnapshots.filter((s) => {
+            const d = safeDate(s?.date);
+            return d && d.getFullYear() === currentYear && d.getMonth() === 0;
+        });
+        const januaryInvestments = investments.filter((i) => {
+            const d = safeDate(i?.date);
+            return d && d.getFullYear() === currentYear && d.getMonth() === 0;
+        });
 
         if (januarySnapshots.length === 0 && januaryInvestments.length === 0) return null;
 
-        const janCash = januarySnapshots.reduce((sum, s) => sum + parseFloat(s.current_value), 0);
-        const janInv = januaryInvestments.reduce((sum, i) => sum + parseFloat(i.current_value), 0);
+        const janCash = januarySnapshots.reduce((sum, s) => sum + safeFloat(s?.current_value), 0);
+        const janInv = januaryInvestments.reduce((sum, i) => sum + safeFloat(i?.current_value), 0);
         const janTotal = janCash + janInv;
 
         if (janTotal <= 0) return null;
-        return ((totalPatrimonio - janTotal) / janTotal) * 100;
+        const growth = ((totalPatrimonio - janTotal) / janTotal) * 100;
+        return isFinite(growth) ? growth : null;
     }, [cashSnapshots, investments, totalPatrimonio]);
+
+    // Check if we have any data
+    const hasData = investments.length > 0 || cashSnapshots.length > 0;
+
+    if (loading) {
+        return (
+            <div className="page-container">
+                <div className="flex-center" style={{ minHeight: '400px' }}>
+                    <div className="spinner"></div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="page-container">
+                <div className="empty-state">
+                    <div className="empty-state-icon">⚠️</div>
+                    <h3>Error al cargar datos</h3>
+                    <p className="text-muted">{error}</p>
+                    <button className="btn btn-primary" onClick={() => window.location.reload()}>
+                        Reintentar
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (!hasData) {
+        return (
+            <div className="page-container">
+                <div className="page-header">
+                    <h1 className="page-title">Patrimonio</h1>
+                    <p className="page-subtitle">Vista consolidada de inversiones y efectivo</p>
+                </div>
+
+                <div className="empty-state" style={{ padding: '4rem 2rem', textAlign: 'center' }}>
+                    <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>📊</div>
+                    <h3 style={{ marginBottom: '0.5rem' }}>No hay datos aún</h3>
+                    <p className="text-muted" style={{ marginBottom: '1.5rem' }}>
+                        Añade inversiones o registros de efectivo para ver tu patrimonio consolidado.
+                    </p>
+                    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                        <Link href="/inversiones/registro" className="btn btn-primary">
+                            ➕ Añadir inversión
+                        </Link>
+                        <Link href="/efectivo" className="btn btn-secondary">
+                            💰 Añadir efectivo
+                        </Link>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="page-container">
@@ -245,67 +334,69 @@ export default function PatrimonioPage() {
                 )}
             </div>
 
-            {/* Distribution */}
-            <div className="chart-container">
-                <h3 className="chart-title">Distribución del patrimonio</h3>
-                {distributionData.every(d => d.value > 0) && distributionData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                        <PieChart>
-                            <Pie
-                                data={distributionData}
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={60}
-                                outerRadius={100}
-                                dataKey="value"
-                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                            >
-                                {distributionData.map((_, index) => (
-                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                ))}
-                            </Pie>
-                            <Tooltip formatter={(value) => formatCurrency(value)} />
-                            <Legend />
-                        </PieChart>
-                    </ResponsiveContainer>
-                ) : (
-                    <div className="flex-center" style={{ height: '300px' }}>
-                        <p className="text-muted">No hay datos suficientes para mostrar el gráfico</p>
-                    </div>
-                )}
-                <div className="tooltip-container" style={{ textAlign: 'center', marginTop: 'var(--spacing-sm)' }}>
-                    <span className="tooltip-trigger">ℹ️ ¿Qué significa esto?</span>
-                    <div className="tooltip-content" style={{ whiteSpace: 'normal', maxWidth: '250px' }}>
-                        {workingMoneyPct.toFixed(0)}% de tu dinero está invertido y trabajando para ti
+            {/* Charts Grid */}
+            <div className="grid grid-2 gap-lg">
+                {/* Distribution Pie Chart */}
+                <div className="chart-container">
+                    <h3 className="chart-title">Distribución del patrimonio</h3>
+                    {distributionData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height={300}>
+                            <PieChart>
+                                <Pie
+                                    data={distributionData}
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={60}
+                                    outerRadius={100}
+                                    dataKey="value"
+                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                >
+                                    {distributionData.map((_, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip formatter={(value) => formatCurrency(value)} />
+                                <Legend />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="flex-center" style={{ height: '300px' }}>
+                            <p className="text-muted">No hay datos para mostrar</p>
+                        </div>
+                    )}
+                    <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+                        <span className="text-muted text-sm">
+                            💡 {workingMoneyPct.toFixed(0)}% de tu dinero está invertido
+                        </span>
                     </div>
                 </div>
-            </div>
 
-            {/* By Account */}
-            <div className="chart-container">
-                <h3 className="chart-title">Valor por cuenta</h3>
-                {allAccounts.some(a => a.value > 0) ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={allAccounts.slice(0, 8)} layout="vertical">
-                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                            <XAxis type="number" tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
-                            <YAxis type="category" dataKey="account" width={120} />
-                            <Tooltip formatter={(value) => formatCurrency(value)} />
-                            <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                {allAccounts.slice(0, 8).map((entry, index) => (
-                                    <Cell
-                                        key={`cell-${index}`}
-                                        fill={entry.type === 'Inversión' ? '#10B981' : '#3B82F6'}
-                                    />
-                                ))}
-                            </Bar>
-                        </BarChart>
-                    </ResponsiveContainer>
-                ) : (
-                    <div className="flex-center" style={{ height: '300px' }}>
-                        <p className="text-muted">No hay datos para mostrar</p>
-                    </div>
-                )}
+                {/* Value by Account Bar Chart */}
+                <div className="chart-container">
+                    <h3 className="chart-title">Valor por cuenta</h3>
+                    {allAccounts.length > 0 && allAccounts.some(a => a.value > 0) ? (
+                        <ResponsiveContainer width="100%" height={300}>
+                            <BarChart data={allAccounts.slice(0, 8)} layout="vertical">
+                                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+                                <XAxis type="number" tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
+                                <YAxis type="category" dataKey="account" width={120} />
+                                <Tooltip formatter={(value) => formatCurrency(value)} />
+                                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                                    {allAccounts.slice(0, 8).map((entry, index) => (
+                                        <Cell
+                                            key={`cell-${index}`}
+                                            fill={entry.type === 'Inversión' ? '#10B981' : '#3B82F6'}
+                                        />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div className="flex-center" style={{ height: '300px' }}>
+                            <p className="text-muted">No hay datos para mostrar</p>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Detail Table */}
@@ -313,7 +404,9 @@ export default function PatrimonioPage() {
                 <div className="card-header"><h3>Detalle por cuenta</h3></div>
                 <div className="card-body">
                     {allAccounts.length === 0 ? (
-                        <div className="empty-state"><p>No hay datos de patrimonio registrados</p></div>
+                        <div className="empty-state">
+                            <p>No hay datos de patrimonio registrados</p>
+                        </div>
                     ) : (
                         <div className="table-container">
                             <table className="table">
@@ -353,7 +446,7 @@ export default function PatrimonioPage() {
                                                     <div className="progress" style={{ width: '60px', height: '6px' }}>
                                                         <div
                                                             className="progress-bar"
-                                                            style={{ width: `${acc.weight}%` }}
+                                                            style={{ width: `${Math.min(acc.weight, 100)}%` }}
                                                         />
                                                     </div>
                                                     <span>{acc.weight.toFixed(1)}%</span>
