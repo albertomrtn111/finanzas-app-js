@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
@@ -21,51 +22,117 @@ const menuItems = [
     { label: 'Importar datos', href: '/importar', icon: '📥' },
 ];
 
+// Get current page title from path
+function getPageTitle(pathname) {
+    const item = menuItems.find(i => i.href === pathname);
+    if (item) return item.label;
+    if (pathname.startsWith('/inversiones')) return 'Inversiones';
+    if (pathname.startsWith('/perfil')) return 'Mi Perfil';
+    if (pathname.startsWith('/onboarding')) return 'Configuración';
+    return 'Finanzas';
+}
+
 export default function Sidebar() {
     const pathname = usePathname();
+    const [isOpen, setIsOpen] = useState(false);
+
+    // Close drawer on route change
+    useEffect(() => {
+        setIsOpen(false);
+    }, [pathname]);
+
+    // Close drawer on Escape key
+    useEffect(() => {
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') setIsOpen(false);
+        };
+        document.addEventListener('keydown', handleEscape);
+        return () => document.removeEventListener('keydown', handleEscape);
+    }, []);
+
+    // Prevent body scroll when drawer is open
+    useEffect(() => {
+        if (isOpen) {
+            document.body.style.overflow = 'hidden';
+        } else {
+            document.body.style.overflow = '';
+        }
+        return () => { document.body.style.overflow = ''; };
+    }, [isOpen]);
+
+    const pageTitle = getPageTitle(pathname);
 
     return (
-        <aside className="sidebar">
-            <div className="sidebar-logo">
-                <span>💰</span>
-                <span>Finanzas</span>
-            </div>
-
-            <nav className="sidebar-nav">
-                {menuItems.map((item, index) => {
-                    if (item.section) {
-                        return (
-                            <div key={index} className="sidebar-section">
-                                {item.section}
-                            </div>
-                        );
-                    }
-
-                    const isActive = pathname === item.href;
-
-                    return (
-                        <Link
-                            key={item.href}
-                            href={item.href}
-                            className={`sidebar-link ${isActive ? 'active' : ''}`}
-                        >
-                            <span>{item.icon}</span>
-                            <span>{item.label}</span>
-                        </Link>
-                    );
-                })}
-            </nav>
-
-            <div style={{ marginTop: 'auto', paddingTop: '2rem' }}>
+        <>
+            {/* Mobile Topbar */}
+            <div className="mobile-topbar">
                 <button
-                    onClick={() => signOut({ callbackUrl: '/login' })}
-                    className="sidebar-link"
-                    style={{ width: '100%', border: 'none', background: 'none', cursor: 'pointer', textAlign: 'left' }}
+                    className="hamburger-btn"
+                    onClick={() => setIsOpen(!isOpen)}
+                    aria-label="Toggle menu"
                 >
-                    <span>🚪</span>
-                    <span>Cerrar sesión</span>
+                    <span className="hamburger-icon">{isOpen ? '✕' : '☰'}</span>
                 </button>
+                <span className="mobile-title">{pageTitle}</span>
+                <Link href="/perfil" className="mobile-profile-btn">
+                    👤
+                </Link>
             </div>
-        </aside>
+
+            {/* Overlay */}
+            <div
+                className={`sidebar-overlay ${isOpen ? 'active' : ''}`}
+                onClick={() => setIsOpen(false)}
+            />
+
+            {/* Sidebar Drawer */}
+            <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+                {/* Header with logo and user avatar */}
+                <div className="sidebar-header">
+                    <div className="sidebar-logo">
+                        <span>💰</span>
+                        <span>Finanzas</span>
+                    </div>
+                    <Link href="/perfil" title="Mi perfil" className="sidebar-profile-btn">
+                        👤
+                    </Link>
+                </div>
+
+                <nav className="sidebar-nav">
+                    {menuItems.map((item, index) => {
+                        if (item.section) {
+                            return (
+                                <div key={index} className="sidebar-section">
+                                    {item.section}
+                                </div>
+                            );
+                        }
+
+                        const isActive = pathname === item.href;
+
+                        return (
+                            <Link
+                                key={item.href}
+                                href={item.href}
+                                className={`sidebar-link ${isActive ? 'active' : ''}`}
+                            >
+                                <span>{item.icon}</span>
+                                <span>{item.label}</span>
+                            </Link>
+                        );
+                    })}
+                </nav>
+
+                <div className="sidebar-footer">
+                    <button
+                        onClick={() => signOut({ callbackUrl: '/login' })}
+                        className="sidebar-link"
+                    >
+                        <span>🚪</span>
+                        <span>Cerrar sesión</span>
+                    </button>
+                </div>
+            </aside>
+        </>
     );
 }

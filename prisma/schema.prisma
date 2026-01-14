@@ -16,6 +16,7 @@ model User {
   name          String?   @db.VarChar(100)
   password_hash String?   @db.VarChar(255)
   google_sub    String?   @unique @db.VarChar(255)
+  onboarding_step Int     @default(0)
   created_at    DateTime
   last_login_at DateTime?
 
