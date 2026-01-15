@@ -260,7 +260,6 @@ export default function HomePage() {
                         <option value="year">Año actual</option>
                     </select>
                     <button className="header-icon-btn" title="Notificaciones">🔔</button>
-                    <button className="header-icon-btn" title="Perfil">👤</button>
                 </div>
             </div>
 

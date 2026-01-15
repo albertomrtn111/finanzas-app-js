@@ -101,6 +101,7 @@
 html {
   font-size: 16px;
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
@@ -110,6 +111,8 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  min-height: 100vh;
 }
 
 /* Tipografía */
@@ -2257,5 +2260,286 @@ textarea.form-input {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* =========================================
+   MOBILE RESPONSIVE OVERHAUL
+   ========================================= */
+
+/* Page Container - consistent across all pages */
+.page-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: var(--spacing-lg);
+}
+
+/* Table wrapper for horizontal scroll */
+.table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-wrapper table {
+  min-width: 600px;
+}
+
+/* Mobile Breakpoint - 768px and below */
+@media (max-width: 768px) {
+
+  /* ===== TYPOGRAPHY ===== */
+  h1 {
+    font-size: 1.5rem !important;
+  }
+
+  h2 {
+    font-size: 1.25rem !important;
+  }
+
+  h3 {
+    font-size: 1.125rem !important;
+  }
+
+  .page-title {
+    font-size: 1.375rem !important;
+  }
+
+  /* ===== PAGE CONTAINER ===== */
+  .page-container {
+    padding: 1rem;
+  }
+
+  .main-content {
+    padding: 1rem;
+    padding-top: calc(60px + 1rem);
+  }
+
+  /* ===== GRIDS - Force 1 column ===== */
+  .grid,
+  .grid-2,
+  .grid-3,
+  .grid-4 {
+    grid-template-columns: 1fr !important;
+    gap: 1rem;
+  }
+
+  /* ===== KPI CARDS ===== */
+  .kpi-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem;
+  }
+
+  .kpi-card {
+    padding: 1rem;
+  }
+
+  .kpi-value {
+    font-size: 1.5rem;
+  }
+
+  /* ===== CARDS ===== */
+  .card {
+    padding: 1rem;
+    border-radius: var(--border-radius-sm);
+  }
+
+  .card-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .card-body {
+    padding: 1rem;
+  }
+
+  /* ===== PREMIUM CARDS (Dashboard) ===== */
+  .premium-card {
+    padding: 1rem;
+  }
+
+  .premium-card-value {
+    font-size: 1.5rem !important;
+  }
+
+  /* ===== CHARTS ===== */
+  .chart-container {
+    height: 250px !important;
+    min-height: 200px;
+  }
+
+  .recharts-wrapper {
+    font-size: 0.75rem;
+  }
+
+  /* Hide pie chart labels on mobile - use tooltip instead */
+  .recharts-pie-label-text {
+    display: none;
+  }
+
+  /* ===== FORMS ===== */
+  .form-input,
+  .form-select,
+  textarea.form-input {
+    width: 100%;
+    font-size: 16px;
+    /* Prevent zoom on iOS */
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .form-row,
+  .form-grid {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* ===== BUTTONS ===== */
+  .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 16px;
+  }
+
+  .btn-group {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  /* ===== TABLES ===== */
+  .table-wrapper {
+    margin: 0 -1rem;
+    padding: 0 1rem;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 0.625rem 0.75rem;
+    font-size: 0.8125rem;
+  }
+
+  /* ===== DASHBOARD SPECIFIC ===== */
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .dashboard-greeting h1 {
+    font-size: 1.375rem;
+  }
+
+  .dashboard-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .dashboard-cards {
+    grid-template-columns: 1fr !important;
+  }
+
+  .quick-actions {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .quick-action-btn {
+    width: 100%;
+  }
+
+  /* ===== BUDGET & CATEGORY ROWS ===== */
+  .budget-row,
+  .category-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  /* ===== MODAL ===== */
+  .modal-content {
+    width: 95%;
+    max-width: none;
+    margin: 1rem;
+  }
+
+  .modal-body {
+    padding: 1rem;
+  }
+
+  /* ===== PERIOD SELECTOR ===== */
+  .period-selector {
+    width: 100%;
+  }
+
+  /* ===== PROFILE PAGE ===== */
+  .profile-section {
+    padding: 1rem;
+  }
+
+  /* ===== ACTIVITY LIST ===== */
+  .activity-item {
+    padding: 0.75rem;
+  }
+
+  /* ===== RADIO GROUPS ===== */
+  .radio-group {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .radio-label {
+    width: 100%;
+  }
+
+  /* ===== HEADER ICONS ===== */
+  .header-icon-btn {
+    padding: 0.5rem;
+  }
+}
+
+/* Extra small devices (below 400px) */
+@media (max-width: 400px) {
+  .page-container {
+    padding: 0.75rem;
+  }
+
+  .main-content {
+    padding: 0.75rem;
+    padding-top: calc(60px + 0.75rem);
+  }
+
+  .kpi-value {
+    font-size: 1.25rem;
+  }
+
+  .premium-card-value {
+    font-size: 1.25rem !important;
+  }
+
+  .chart-container {
+    height: 200px !important;
+  }
+
+  h1 {
+    font-size: 1.25rem !important;
+  }
+}
+
+/* Tablet breakpoint adjustments */
+@media (min-width: 769px) and (max-width: 1023px) {
+
+  .grid-3,
+  .grid-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-cards {
+    grid-template-columns: repeat(2, 1fr);
   }
 }

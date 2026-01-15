@@ -257,7 +257,6 @@ export default function ResumenPage() {
                     </div>
                     <select
                         className="form-input form-select"
-                        style={{ width: '120px' }}
                         value={selectedYear}
                         onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                     >
@@ -267,7 +266,6 @@ export default function ResumenPage() {
                     </select>
                     <select
                         className="form-input form-select"
-                        style={{ width: '140px' }}
                         value={selectedMonth}
                         onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
                     >
@@ -439,10 +437,10 @@ export default function ResumenPage() {
                                     data={categoryData}
                                     cx="50%"
                                     cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
+                                    innerRadius={50}
+                                    outerRadius={80}
                                     dataKey="value"
-                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                    labelLine={false}
                                 >
                                     {categoryData.map((_, index) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
