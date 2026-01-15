@@ -342,8 +342,15 @@ export default function HomePage() {
                     </div>
                     <div className="premium-card-body">
                         {investmentsByType.length > 0 ? (
-                            <div className="donut-container">
-                                <ChartContainer heightMobile={180} heightDesktop={180}>
+                            <>
+                                {/* Chart with explicit dimensions for mobile */}
+                                <div style={{
+                                    width: '100%',
+                                    minWidth: 0,
+                                    height: 180,
+                                    position: 'relative',
+                                    marginBottom: 'var(--spacing-md)'
+                                }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
                                             <Pie
@@ -361,7 +368,8 @@ export default function HomePage() {
                                             </Pie>
                                         </PieChart>
                                     </ResponsiveContainer>
-                                </ChartContainer>
+                                </div>
+                                {/* Legend */}
                                 <div className="donut-legend">
                                     {investmentsByType.map((item, idx) => (
                                         <div key={idx} className="legend-item">
@@ -375,7 +383,7 @@ export default function HomePage() {
                                         </div>
                                     ))}
                                 </div>
-                            </div>
+                            </>
                         ) : (
                             <div className="empty-activity">
                                 <div className="empty-activity-icon">📈</div>
