@@ -337,52 +337,87 @@ export default function PatrimonioPage() {
             {/* Charts Grid */}
             <div className="grid grid-2 gap-lg">
                 {/* Distribution Pie Chart */}
-                <div className="chart-container">
+                <div className="chart-container chart-pie">
                     <h3 className="chart-title">Distribución del patrimonio</h3>
                     {distributionData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={300}>
+                        <ResponsiveContainer width="100%" height={260}>
                             <PieChart>
                                 <Pie
                                     data={distributionData}
                                     cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
+                                    cy="45%"
+                                    innerRadius={35}
+                                    outerRadius={65}
                                     dataKey="value"
-                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                    labelLine={false}
                                 >
                                     {distributionData.map((_, index) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip formatter={(value) => formatCurrency(value)} />
-                                <Legend />
+                                <Tooltip
+                                    formatter={(value) => formatCurrency(value)}
+                                    contentStyle={{
+                                        maxWidth: '180px',
+                                        fontSize: '12px',
+                                        background: 'var(--bg-primary)',
+                                        border: '1px solid var(--border-color)'
+                                    }}
+                                />
+                                <Legend
+                                    layout="horizontal"
+                                    verticalAlign="bottom"
+                                    align="center"
+                                    wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
+                                />
                             </PieChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="flex-center" style={{ height: '300px' }}>
+                        <div className="flex-center" style={{ height: '260px' }}>
                             <p className="text-muted">No hay datos para mostrar</p>
                         </div>
                     )}
                     <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
                         <span className="text-muted text-sm">
-                            💡 {workingMoneyPct.toFixed(0)}% de tu dinero está invertido
+                            💡 {workingMoneyPct.toFixed(0)}% invertido
                         </span>
                     </div>
                 </div>
 
                 {/* Value by Account Bar Chart */}
-                <div className="chart-container">
+                <div className="chart-container chart-bar">
                     <h3 className="chart-title">Valor por cuenta</h3>
                     {allAccounts.length > 0 && allAccounts.some(a => a.value > 0) ? (
-                        <ResponsiveContainer width="100%" height={300}>
-                            <BarChart data={allAccounts.slice(0, 8)} layout="vertical">
+                        <ResponsiveContainer width="100%" height={260}>
+                            <BarChart
+                                data={allAccounts.slice(0, 6)}
+                                layout="vertical"
+                                margin={{ left: 5, right: 15, top: 5, bottom: 5 }}
+                            >
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                                <XAxis type="number" tickFormatter={(v) => `€${(v / 1000).toFixed(0)}k`} />
-                                <YAxis type="category" dataKey="account" width={120} />
-                                <Tooltip formatter={(value) => formatCurrency(value)} />
-                                <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                                    {allAccounts.slice(0, 8).map((entry, index) => (
+                                <XAxis
+                                    type="number"
+                                    tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                                    tick={{ fontSize: 10 }}
+                                />
+                                <YAxis
+                                    type="category"
+                                    dataKey="account"
+                                    width={70}
+                                    tick={{ fontSize: 10 }}
+                                    tickFormatter={(v) => v.length > 10 ? v.substring(0, 10) + '…' : v}
+                                />
+                                <Tooltip
+                                    formatter={(value) => formatCurrency(value)}
+                                    contentStyle={{
+                                        maxWidth: '180px',
+                                        fontSize: '12px',
+                                        background: 'var(--bg-primary)',
+                                        border: '1px solid var(--border-color)'
+                                    }}
+                                />
+                                <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={30}>
+                                    {allAccounts.slice(0, 6).map((entry, index) => (
                                         <Cell
                                             key={`cell-${index}`}
                                             fill={entry.type === 'Inversión' ? '#10B981' : '#3B82F6'}
@@ -392,7 +427,7 @@ export default function PatrimonioPage() {
                             </BarChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="flex-center" style={{ height: '300px' }}>
+                        <div className="flex-center" style={{ height: '260px' }}>
                             <p className="text-muted">No hay datos para mostrar</p>
                         </div>
                     )}
@@ -408,15 +443,15 @@ export default function PatrimonioPage() {
                             <p>No hay datos de patrimonio registrados</p>
                         </div>
                     ) : (
-                        <div className="table-container">
-                            <table className="table">
+                        <div className="table-wrapper">
+                            <table className="table data-table">
                                 <thead>
                                     <tr>
                                         <th>Tipo</th>
                                         <th>Cuenta</th>
-                                        <th>Valor actual</th>
+                                        <th>Valor</th>
                                         <th>Rendimiento</th>
-                                        <th>% del total</th>
+                                        <th>% Total</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -424,32 +459,33 @@ export default function PatrimonioPage() {
                                         <tr key={idx}>
                                             <td>
                                                 <span className={`badge ${acc.type === 'Inversión' ? 'badge-success' : 'badge-primary'}`}>
-                                                    {acc.type}
+                                                    {acc.type === 'Inversión' ? 'Inv' : 'Cash'}
                                                 </span>
                                             </td>
-                                            <td className="font-semibold">{acc.account}</td>
-                                            <td>{formatCurrency(acc.value)}</td>
+                                            <td className="font-semibold" style={{ whiteSpace: 'nowrap' }}>
+                                                {acc.account.length > 15 ? acc.account.substring(0, 15) + '…' : acc.account}
+                                            </td>
+                                            <td style={{ whiteSpace: 'nowrap' }}>{formatCurrency(acc.value)}</td>
                                             <td>
                                                 {acc.type === 'Inversión' ? (
                                                     <span className={acc.returnPct >= 0 ? 'text-success' : 'text-danger'}>
                                                         <span className={`trend ${acc.returnPct >= 0 ? 'trend-up' : 'trend-down'}`}>
                                                             {Math.abs(acc.returnPct).toFixed(1)}%
                                                         </span>
-                                                        {' '}({formatCurrency(acc.gain)})
                                                     </span>
                                                 ) : (
                                                     <span className="text-muted">—</span>
                                                 )}
                                             </td>
                                             <td>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                    <div className="progress" style={{ width: '60px', height: '6px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                                                    <div className="progress" style={{ width: '40px', height: '4px' }}>
                                                         <div
                                                             className="progress-bar"
                                                             style={{ width: `${Math.min(acc.weight, 100)}%` }}
                                                         />
                                                     </div>
-                                                    <span>{acc.weight.toFixed(1)}%</span>
+                                                    <span style={{ fontSize: '0.75rem' }}>{acc.weight.toFixed(0)}%</span>
                                                 </div>
                                             </td>
                                         </tr>

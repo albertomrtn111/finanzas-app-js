@@ -163,22 +163,15 @@ export default function ProductosPage() {
                         {products.length === 0 ? (
                             <div className="empty-state"><p>No hay productos definidos</p></div>
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <div className="product-list">
                                 {products.map((p) => {
                                     const stats = productStats[p.name];
                                     const label = stats ? getProductLabel(stats.weight) : null;
 
                                     return (
-                                        <div
-                                            key={p.id}
-                                            style={{
-                                                padding: '1rem',
-                                                background: 'var(--bg-tertiary)',
-                                                borderRadius: 'var(--border-radius-sm)',
-                                            }}
-                                        >
-                                            <div className="flex-between" style={{ marginBottom: '0.5rem' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                        <div key={p.id} className="product-card">
+                                            <div className="product-card-header">
+                                                <div className="product-card-title">
                                                     <span className="font-semibold">{p.name}</span>
                                                     {label && (
                                                         <span className={`product-label ${label.class}`}>
@@ -187,28 +180,28 @@ export default function ProductosPage() {
                                                     )}
                                                 </div>
                                                 <button
-                                                    className="btn btn-icon"
+                                                    className="btn-delete"
                                                     onClick={() => handleDeleteClick(p)}
-                                                    style={{ color: 'var(--danger)' }}
+                                                    aria-label="Eliminar producto"
                                                 >
                                                     🗑️
                                                 </button>
                                             </div>
-                                            <div className="text-muted text-sm mb-sm">{p.asset_type}</div>
+                                            <div className="product-card-type">{p.asset_type}</div>
 
                                             {stats && stats.currentValue > 0 && (
-                                                <div className="grid grid-3 gap-sm text-sm" style={{ marginTop: '0.5rem' }}>
+                                                <div className="product-card-stats">
                                                     <div>
-                                                        <div className="text-muted">Invertido</div>
-                                                        <div className="font-semibold">{formatCurrency(stats.invested)}</div>
+                                                        <div className="stat-label">Invertido</div>
+                                                        <div className="stat-value">{formatCurrency(stats.invested)}</div>
                                                     </div>
                                                     <div>
-                                                        <div className="text-muted">Valor actual</div>
-                                                        <div className="font-semibold">{formatCurrency(stats.currentValue)}</div>
+                                                        <div className="stat-label">Valor</div>
+                                                        <div className="stat-value">{formatCurrency(stats.currentValue)}</div>
                                                     </div>
                                                     <div>
-                                                        <div className="text-muted">Rentabilidad</div>
-                                                        <div className={`font-semibold ${stats.returnPct >= 0 ? 'text-success' : 'text-danger'}`}>
+                                                        <div className="stat-label">Rentab.</div>
+                                                        <div className={`stat-value ${stats.returnPct >= 0 ? 'text-success' : 'text-danger'}`}>
                                                             <span className={`trend ${stats.returnPct >= 0 ? 'trend-up' : 'trend-down'}`}>
                                                                 {Math.abs(stats.returnPct).toFixed(1)}%
                                                             </span>

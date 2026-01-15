@@ -396,13 +396,26 @@ export default function ResumenPage() {
 
             {/* Monthly Savings Chart with Target Line */}
             {monthlyData.length > 0 && (
-                <div className="chart-container">
+                <div className="chart-container chart-bar">
                     <h3 className="chart-title">Evolución mensual del ahorro</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={monthlyData}>
+                    <ResponsiveContainer width="100%" height={240}>
+                        <BarChart
+                            data={monthlyData}
+                            margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
+                        >
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                            <XAxis dataKey="name" stroke="var(--text-tertiary)" />
-                            <YAxis stroke="var(--text-tertiary)" />
+                            <XAxis
+                                dataKey="name"
+                                stroke="var(--text-tertiary)"
+                                tick={{ fontSize: 11 }}
+                                tickLine={false}
+                            />
+                            <YAxis
+                                stroke="var(--text-tertiary)"
+                                tick={{ fontSize: 10 }}
+                                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                                width={40}
+                            />
                             <Tooltip
                                 formatter={(value) => formatCurrency(value)}
                                 contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}
@@ -411,9 +424,12 @@ export default function ResumenPage() {
                                 y={avgMonthlySavingsTarget}
                                 stroke={avgMonthlySavingsTarget > 0 ? "#10B981" : "#EF4444"}
                                 strokeDasharray="5 5"
-                                label={{ value: 'Objetivo', fill: 'var(--text-muted)', fontSize: 12 }}
                             />
-                            <Bar dataKey="savings" radius={[4, 4, 0, 0]}>
+                            <Bar
+                                dataKey="savings"
+                                radius={[4, 4, 0, 0]}
+                                maxBarSize={60}
+                            >
                                 {monthlyData.map((entry, index) => (
                                     <Cell
                                         key={`cell-${index}`}
@@ -429,16 +445,16 @@ export default function ResumenPage() {
             <div className="grid grid-2 gap-lg">
                 {/* Category Chart */}
                 {categoryData.length > 0 && (
-                    <div className="chart-container">
+                    <div className="chart-container chart-pie">
                         <h3 className="chart-title">Gastos por categoría ({selectedYear})</h3>
-                        <ResponsiveContainer width="100%" height={300}>
+                        <ResponsiveContainer width="100%" height={260}>
                             <PieChart>
                                 <Pie
                                     data={categoryData}
                                     cx="50%"
-                                    cy="50%"
-                                    innerRadius={50}
-                                    outerRadius={80}
+                                    cy="45%"
+                                    innerRadius={40}
+                                    outerRadius={70}
                                     dataKey="value"
                                     labelLine={false}
                                 >
@@ -447,6 +463,12 @@ export default function ResumenPage() {
                                     ))}
                                 </Pie>
                                 <Tooltip formatter={(value) => formatCurrency(value)} />
+                                <Legend
+                                    layout="horizontal"
+                                    verticalAlign="bottom"
+                                    align="center"
+                                    wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
+                                />
                             </PieChart>
                         </ResponsiveContainer>
                     </div>
@@ -454,24 +476,29 @@ export default function ResumenPage() {
 
                 {/* Fixed vs Variable */}
                 {typeData.length > 0 && (
-                    <div className="chart-container">
+                    <div className="chart-container chart-pie">
                         <h3 className="chart-title">Gasto fijo vs variable ({selectedYear})</h3>
-                        <ResponsiveContainer width="100%" height={300}>
+                        <ResponsiveContainer width="100%" height={260}>
                             <PieChart>
                                 <Pie
                                     data={typeData}
                                     cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={100}
+                                    cy="45%"
+                                    innerRadius={40}
+                                    outerRadius={70}
                                     dataKey="value"
-                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                    labelLine={false}
                                 >
                                     <Cell fill="#3B82F6" />
                                     <Cell fill="#10B981" />
                                 </Pie>
                                 <Tooltip formatter={(value) => formatCurrency(value)} />
-                                <Legend />
+                                <Legend
+                                    layout="horizontal"
+                                    verticalAlign="bottom"
+                                    align="center"
+                                    wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
+                                />
                             </PieChart>
                         </ResponsiveContainer>
                     </div>

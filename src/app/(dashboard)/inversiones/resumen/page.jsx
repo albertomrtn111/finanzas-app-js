@@ -200,37 +200,73 @@ export default function InversionesResumenPage() {
 
             {/* Distribution by Asset Type */}
             <div className="grid grid-2 gap-lg">
-                <div className="chart-container">
+                <div className="chart-container chart-pie">
                     <h3 className="chart-title">Distribución por tipo de activo</h3>
-                    <ResponsiveContainer width="100%" height={300}>
+                    <ResponsiveContainer width="100%" height={260}>
                         <PieChart>
                             <Pie
                                 data={assetTypeData}
                                 cx="50%"
-                                cy="50%"
-                                innerRadius={60}
-                                outerRadius={100}
+                                cy="45%"
+                                innerRadius={35}
+                                outerRadius={65}
                                 dataKey="value"
-                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                labelLine={false}
                             >
                                 {assetTypeData.map((_, index) => (
                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                 ))}
                             </Pie>
-                            <Tooltip formatter={(v) => formatCurrency(v)} />
+                            <Tooltip
+                                formatter={(v) => formatCurrency(v)}
+                                contentStyle={{
+                                    maxWidth: '180px',
+                                    fontSize: '12px',
+                                    background: 'var(--bg-primary)',
+                                    border: '1px solid var(--border-color)'
+                                }}
+                            />
+                            <Legend
+                                layout="horizontal"
+                                verticalAlign="bottom"
+                                align="center"
+                                wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
+                            />
                         </PieChart>
                     </ResponsiveContainer>
                 </div>
 
-                <div className="chart-container">
+                <div className="chart-container chart-bar">
                     <h3 className="chart-title">Distribución por producto</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={distData} layout="vertical">
+                    <ResponsiveContainer width="100%" height={260}>
+                        <BarChart
+                            data={distData.slice(0, 6)}
+                            layout="vertical"
+                            margin={{ left: 5, right: 15, top: 5, bottom: 5 }}
+                        >
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                            <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} />
-                            <YAxis type="category" dataKey="name" width={120} />
-                            <Tooltip formatter={(v) => formatCurrency(v)} />
-                            <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} />
+                            <XAxis
+                                type="number"
+                                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                                tick={{ fontSize: 10 }}
+                            />
+                            <YAxis
+                                type="category"
+                                dataKey="name"
+                                width={70}
+                                tick={{ fontSize: 10 }}
+                                tickFormatter={(v) => v.length > 10 ? v.substring(0, 10) + '…' : v}
+                            />
+                            <Tooltip
+                                formatter={(v) => formatCurrency(v)}
+                                contentStyle={{
+                                    maxWidth: '180px',
+                                    fontSize: '12px',
+                                    background: 'var(--bg-primary)',
+                                    border: '1px solid var(--border-color)'
+                                }}
+                            />
+                            <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} maxBarSize={30} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
@@ -238,22 +274,43 @@ export default function InversionesResumenPage() {
 
             {/* Evolution Chart - Dual Line */}
             {evolutionWithAccumulation.length > 1 && (
-                <div className="chart-container">
-                    <h3 className="chart-title">Evolución: Aportaciones vs Valor de mercado</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={evolutionWithAccumulation}>
+                <div className="chart-container chart-line">
+                    <h3 className="chart-title">Evolución: Aportaciones vs Valor</h3>
+                    <ResponsiveContainer width="100%" height={240}>
+                        <LineChart
+                            data={evolutionWithAccumulation}
+                            margin={{ left: 0, right: 10, top: 10, bottom: 5 }}
+                        >
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                            <XAxis dataKey="date" />
-                            <YAxis tickFormatter={(v) => formatCurrency(v)} />
-                            <Tooltip formatter={(v) => formatCurrency(v)} />
-                            <Legend />
+                            <XAxis
+                                dataKey="date"
+                                tick={{ fontSize: 10 }}
+                                tickFormatter={(v) => v.substring(5)}
+                            />
+                            <YAxis
+                                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+                                tick={{ fontSize: 10 }}
+                                width={40}
+                            />
+                            <Tooltip
+                                formatter={(v) => formatCurrency(v)}
+                                contentStyle={{
+                                    maxWidth: '180px',
+                                    fontSize: '12px',
+                                    background: 'var(--bg-primary)',
+                                    border: '1px solid var(--border-color)'
+                                }}
+                            />
+                            <Legend
+                                wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
+                            />
                             <Line
                                 type="monotone"
                                 dataKey="aportado"
                                 stroke="#6B7280"
                                 strokeWidth={2}
                                 dot={false}
-                                name="Aportaciones"
+                                name="Aportado"
                             />
                             <Line
                                 type="monotone"
@@ -261,14 +318,14 @@ export default function InversionesResumenPage() {
                                 stroke="#3B82F6"
                                 strokeWidth={2}
                                 dot={false}
-                                name="Valor mercado"
+                                name="Valor"
                             />
                         </LineChart>
                     </ResponsiveContainer>
                     <p className="text-muted text-sm mt-sm">
                         {totalGain >= 0
-                            ? `📈 Tu inversión ha generado ${formatCurrency(totalGain)} de plusvalía`
-                            : `📉 Tu cartera tiene una minusvalía de ${formatCurrency(Math.abs(totalGain))}`
+                            ? `📈 Plusvalía: ${formatCurrency(totalGain)}`
+                            : `📉 Minusvalía: ${formatCurrency(Math.abs(totalGain))}`
                         }
                     </p>
                 </div>
