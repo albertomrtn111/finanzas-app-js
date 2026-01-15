@@ -50,12 +50,14 @@ export default function Sidebar() {
         return () => document.removeEventListener('keydown', handleEscape);
     }, []);
 
-    // Prevent body scroll when drawer is open
+    // Prevent body scroll when drawer is open, trigger resize on close
     useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden';
         } else {
             document.body.style.overflow = '';
+            // Trigger resize so Recharts recalculates after sidebar closes
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
         }
         return () => { document.body.style.overflow = ''; };
     }, [isOpen]);

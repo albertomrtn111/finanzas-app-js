@@ -42,6 +42,14 @@ export default function HomePage() {
         loadData();
     }, []);
 
+    // Force Recharts to recalculate sizes after mount
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [loading]);
+
     const loadData = async () => {
         setLoading(true);
         try {
@@ -340,23 +348,25 @@ export default function HomePage() {
                     <div className="premium-card-body">
                         {investmentsByType.length > 0 ? (
                             <div className="donut-container">
-                                <ResponsiveContainer width="100%" height={180}>
-                                    <PieChart>
-                                        <Pie
-                                            data={investmentsByType}
-                                            cx="50%"
-                                            cy="50%"
-                                            innerRadius={50}
-                                            outerRadius={75}
-                                            dataKey="value"
-                                            paddingAngle={2}
-                                        >
-                                            {investmentsByType.map((_, index) => (
-                                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                            ))}
-                                        </Pie>
-                                    </PieChart>
-                                </ResponsiveContainer>
+                                <div style={{ width: '100%', height: 180, minWidth: 0, position: 'relative' }}>
+                                    <ResponsiveContainer width="100%" height={180}>
+                                        <PieChart>
+                                            <Pie
+                                                data={investmentsByType}
+                                                cx="50%"
+                                                cy="50%"
+                                                innerRadius={45}
+                                                outerRadius={70}
+                                                dataKey="value"
+                                                paddingAngle={2}
+                                            >
+                                                {investmentsByType.map((_, index) => (
+                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
                                 <div className="donut-legend">
                                     {investmentsByType.map((item, idx) => (
                                         <div key={idx} className="legend-item">

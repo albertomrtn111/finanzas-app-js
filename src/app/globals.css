@@ -2432,20 +2432,28 @@ textarea.form-input {
 }
 
 /* ===== CHART CONTAINER - Critical for Recharts ===== */
-.chart-container {
+.chart-container,
+.chart-wrapper {
   width: 100%;
   max-width: 100%;
   min-width: 0;
   position: relative;
-  /* Required for ResponsiveContainer */
-  overflow: hidden;
+  overflow: visible;
+  /* Don't clip charts */
   background: var(--bg-primary);
   border-radius: var(--border-radius);
   padding: 1rem;
 }
 
+.chart-inner {
+  width: 100%;
+  min-width: 0;
+  position: relative;
+}
+
 /* Ensure recharts wrapper respects container */
-.chart-container .recharts-responsive-container {
+.chart-container .recharts-responsive-container,
+.chart-wrapper .recharts-responsive-container {
   max-width: 100% !important;
 }
 
@@ -2567,24 +2575,30 @@ textarea.form-input {
   }
 
   /* ===== CHARTS - Critical fixes ===== */
-  .chart-container {
+  .chart-container,
+  .chart-wrapper {
     width: 100% !important;
     max-width: 100% !important;
-    min-height: 260px;
     padding: 0.75rem;
-    overflow: hidden;
+    overflow: visible;
   }
 
-  .chart-container.chart-bar {
+  .chart-inner {
+    height: 260px !important;
+  }
+
+  /* Legacy chart-container without chart-inner - set explicit height */
+  .chart-container>.recharts-responsive-container {
     min-height: 260px;
   }
 
-  .chart-container.chart-pie {
+  .chart-container.chart-bar .recharts-responsive-container,
+  .chart-container.chart-line .recharts-responsive-container {
+    min-height: 260px;
+  }
+
+  .chart-container.chart-pie .recharts-responsive-container {
     min-height: 280px;
-  }
-
-  .chart-container.chart-line {
-    min-height: 260px;
   }
 
   /* Recharts specific fixes */

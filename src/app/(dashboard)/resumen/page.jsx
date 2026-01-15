@@ -20,6 +20,14 @@ export default function ResumenPage() {
         loadData();
     }, []);
 
+    // Force Recharts to recalculate sizes after mount
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [loading]);
+
     const loadData = async () => {
         setLoading(true);
         try {

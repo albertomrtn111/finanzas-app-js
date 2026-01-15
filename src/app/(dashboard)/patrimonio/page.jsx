@@ -53,6 +53,14 @@ export default function PatrimonioPage() {
         loadData();
     }, []);
 
+    // Force Recharts to recalculate sizes after mount
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [loading]);
+
     const formatCurrency = (amount) => {
         const safeAmount = safeFloat(amount);
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(safeAmount);

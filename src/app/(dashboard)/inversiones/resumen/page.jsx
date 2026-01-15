@@ -20,6 +20,14 @@ export default function InversionesResumenPage() {
             .finally(() => setLoading(false));
     }, []);
 
+    // Force Recharts to recalculate sizes after mount
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [loading]);
+
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
     };
