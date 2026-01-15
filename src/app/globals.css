@@ -2442,19 +2442,24 @@ textarea.form-input {
   /* Don't clip charts */
   background: var(--bg-primary);
   border-radius: var(--border-radius);
+  border: 1px solid var(--border-color);
   padding: 1rem;
+  margin-bottom: var(--spacing-lg);
 }
 
 .chart-inner {
   width: 100%;
   min-width: 0;
   position: relative;
+  overflow: visible;
 }
 
 /* Ensure recharts wrapper respects container */
 .chart-container .recharts-responsive-container,
-.chart-wrapper .recharts-responsive-container {
+.chart-wrapper .recharts-responsive-container,
+.chart-inner .recharts-responsive-container {
   max-width: 100% !important;
+  min-width: 0;
 }
 
 /* =========================================

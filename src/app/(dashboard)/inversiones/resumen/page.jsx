@@ -5,6 +5,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     LineChart, Line, Legend, PieChart, Pie, Cell
 } from 'recharts';
+import ChartContainer from '@/components/ChartContainer';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
@@ -20,13 +21,7 @@ export default function InversionesResumenPage() {
             .finally(() => setLoading(false));
     }, []);
 
-    // Force Recharts to recalculate sizes after mount
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            window.dispatchEvent(new Event('resize'));
-        }, 100);
-        return () => clearTimeout(timer);
-    }, [loading]);
+
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -208,9 +203,8 @@ export default function InversionesResumenPage() {
 
             {/* Distribution by Asset Type */}
             <div className="grid grid-2 gap-lg">
-                <div className="chart-container chart-pie">
-                    <h3 className="chart-title">Distribución por tipo de activo</h3>
-                    <ResponsiveContainer width="100%" height={260}>
+                <ChartContainer title="Distribución por tipo de activo" heightMobile={260} heightDesktop={260} className="chart-pie">
+                    <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
                                 data={assetTypeData}
@@ -242,11 +236,10 @@ export default function InversionesResumenPage() {
                             />
                         </PieChart>
                     </ResponsiveContainer>
-                </div>
+                </ChartContainer>
 
-                <div className="chart-container chart-bar">
-                    <h3 className="chart-title">Distribución por producto</h3>
-                    <ResponsiveContainer width="100%" height={260}>
+                <ChartContainer title="Distribución por producto" heightMobile={260} heightDesktop={260} className="chart-bar">
+                    <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                             data={distData.slice(0, 6)}
                             layout="vertical"
@@ -277,14 +270,13 @@ export default function InversionesResumenPage() {
                             <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} maxBarSize={30} />
                         </BarChart>
                     </ResponsiveContainer>
-                </div>
+                </ChartContainer>
             </div>
 
             {/* Evolution Chart - Dual Line */}
             {evolutionWithAccumulation.length > 1 && (
-                <div className="chart-container chart-line">
-                    <h3 className="chart-title">Evolución: Aportaciones vs Valor</h3>
-                    <ResponsiveContainer width="100%" height={240}>
+                <ChartContainer title="Evolución: Aportaciones vs Valor" heightMobile={240} heightDesktop={240} className="chart-line">
+                    <ResponsiveContainer width="100%" height="100%">
                         <LineChart
                             data={evolutionWithAccumulation}
                             margin={{ left: 0, right: 10, top: 10, bottom: 5 }}
@@ -336,7 +328,7 @@ export default function InversionesResumenPage() {
                             : `📉 Minusvalía: ${formatCurrency(Math.abs(totalGain))}`
                         }
                     </p>
-                </div>
+                </ChartContainer>
             )}
 
             {/* Detail Table with Weight */}

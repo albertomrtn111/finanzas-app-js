@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import ChartContainer from '@/components/ChartContainer';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -42,13 +43,7 @@ export default function HomePage() {
         loadData();
     }, []);
 
-    // Force Recharts to recalculate sizes after mount
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            window.dispatchEvent(new Event('resize'));
-        }, 100);
-        return () => clearTimeout(timer);
-    }, [loading]);
+
 
     const loadData = async () => {
         setLoading(true);
@@ -348,8 +343,8 @@ export default function HomePage() {
                     <div className="premium-card-body">
                         {investmentsByType.length > 0 ? (
                             <div className="donut-container">
-                                <div style={{ width: '100%', height: 180, minWidth: 0, position: 'relative' }}>
-                                    <ResponsiveContainer width="100%" height={180}>
+                                <ChartContainer heightMobile={180} heightDesktop={180}>
+                                    <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
                                             <Pie
                                                 data={investmentsByType}
@@ -366,7 +361,7 @@ export default function HomePage() {
                                             </Pie>
                                         </PieChart>
                                     </ResponsiveContainer>
-                                </div>
+                                </ChartContainer>
                                 <div className="donut-legend">
                                     {investmentsByType.map((item, idx) => (
                                         <div key={idx} className="legend-item">

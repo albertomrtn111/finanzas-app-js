@@ -5,6 +5,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine
 } from 'recharts';
+import ChartContainer from '@/components/ChartContainer';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
@@ -20,13 +21,7 @@ export default function ResumenPage() {
         loadData();
     }, []);
 
-    // Force Recharts to recalculate sizes after mount
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            window.dispatchEvent(new Event('resize'));
-        }, 100);
-        return () => clearTimeout(timer);
-    }, [loading]);
+
 
     const loadData = async () => {
         setLoading(true);
@@ -404,9 +399,8 @@ export default function ResumenPage() {
 
             {/* Monthly Savings Chart with Target Line */}
             {monthlyData.length > 0 && (
-                <div className="chart-container chart-bar">
-                    <h3 className="chart-title">Evolución mensual del ahorro</h3>
-                    <ResponsiveContainer width="100%" height={240}>
+                <ChartContainer title="Evolución mensual del ahorro" heightMobile={240} heightDesktop={240}>
+                    <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                             data={monthlyData}
                             margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
@@ -447,15 +441,14 @@ export default function ResumenPage() {
                             </Bar>
                         </BarChart>
                     </ResponsiveContainer>
-                </div>
+                </ChartContainer>
             )}
 
             <div className="grid grid-2 gap-lg">
                 {/* Category Chart */}
                 {categoryData.length > 0 && (
-                    <div className="chart-container chart-pie">
-                        <h3 className="chart-title">Gastos por categoría ({selectedYear})</h3>
-                        <ResponsiveContainer width="100%" height={260}>
+                    <ChartContainer title={`Gastos por categoría (${selectedYear})`} heightMobile={260} heightDesktop={260} className="chart-pie">
+                        <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie
                                     data={categoryData}
@@ -479,14 +472,13 @@ export default function ResumenPage() {
                                 />
                             </PieChart>
                         </ResponsiveContainer>
-                    </div>
+                    </ChartContainer>
                 )}
 
                 {/* Fixed vs Variable */}
                 {typeData.length > 0 && (
-                    <div className="chart-container chart-pie">
-                        <h3 className="chart-title">Gasto fijo vs variable ({selectedYear})</h3>
-                        <ResponsiveContainer width="100%" height={260}>
+                    <ChartContainer title={`Gasto fijo vs variable (${selectedYear})`} heightMobile={260} heightDesktop={260} className="chart-pie">
+                        <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie
                                     data={typeData}
@@ -509,7 +501,7 @@ export default function ResumenPage() {
                                 />
                             </PieChart>
                         </ResponsiveContainer>
-                    </div>
+                    </ChartContainer>
                 )}
             </div>
 

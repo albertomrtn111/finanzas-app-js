@@ -6,6 +6,7 @@ import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     PieChart, Pie, Cell, Legend
 } from 'recharts';
+import ChartContainer from '@/components/ChartContainer';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -53,13 +54,7 @@ export default function PatrimonioPage() {
         loadData();
     }, []);
 
-    // Force Recharts to recalculate sizes after mount
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            window.dispatchEvent(new Event('resize'));
-        }, 100);
-        return () => clearTimeout(timer);
-    }, [loading]);
+
 
     const formatCurrency = (amount) => {
         const safeAmount = safeFloat(amount);
@@ -345,10 +340,9 @@ export default function PatrimonioPage() {
             {/* Charts Grid */}
             <div className="grid grid-2 gap-lg">
                 {/* Distribution Pie Chart */}
-                <div className="chart-container chart-pie">
-                    <h3 className="chart-title">Distribución del patrimonio</h3>
+                <ChartContainer title="Distribución del patrimonio" heightMobile={260} heightDesktop={260} className="chart-pie">
                     {distributionData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={260}>
+                        <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie
                                     data={distributionData}
@@ -381,7 +375,7 @@ export default function PatrimonioPage() {
                             </PieChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="flex-center" style={{ height: '260px' }}>
+                        <div className="flex-center" style={{ height: '100%' }}>
                             <p className="text-muted">No hay datos para mostrar</p>
                         </div>
                     )}
@@ -390,13 +384,12 @@ export default function PatrimonioPage() {
                             💡 {workingMoneyPct.toFixed(0)}% invertido
                         </span>
                     </div>
-                </div>
+                </ChartContainer>
 
                 {/* Value by Account Bar Chart */}
-                <div className="chart-container chart-bar">
-                    <h3 className="chart-title">Valor por cuenta</h3>
+                <ChartContainer title="Valor por cuenta" heightMobile={260} heightDesktop={260} className="chart-bar">
                     {allAccounts.length > 0 && allAccounts.some(a => a.value > 0) ? (
-                        <ResponsiveContainer width="100%" height={260}>
+                        <ResponsiveContainer width="100%" height="100%">
                             <BarChart
                                 data={allAccounts.slice(0, 6)}
                                 layout="vertical"
@@ -435,11 +428,11 @@ export default function PatrimonioPage() {
                             </BarChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="flex-center" style={{ height: '260px' }}>
+                        <div className="flex-center" style={{ height: '100%' }}>
                             <p className="text-muted">No hay datos para mostrar</p>
                         </div>
                     )}
-                </div>
+                </ChartContainer>
             </div>
 
             {/* Detail Table */}
