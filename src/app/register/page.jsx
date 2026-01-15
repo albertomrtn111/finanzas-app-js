@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { signIn } from 'next-auth/react';
 import Link from 'next/link';
 
 export default function RegisterPage() {
@@ -24,8 +25,8 @@ export default function RegisterPage() {
             return;
         }
 
-        if (password.length < 6) {
-            setError('La contraseña debe tener al menos 6 caracteres');
+        if (password.length < 8) {
+            setError('La contraseña debe tener al menos 8 caracteres');
             return;
         }
 
@@ -48,10 +49,19 @@ export default function RegisterPage() {
             if (!res.ok) {
                 setError(data.error || 'Error al crear la cuenta');
             } else {
-                setSuccess('Cuenta creada correctamente. Redirigiendo al login...');
-                setTimeout(() => {
+                setSuccess('¡Cuenta creada! Iniciando sesión...');
+                // Auto-login and redirect to onboarding
+                const signInResult = await signIn('credentials', {
+                    email,
+                    password,
+                    redirect: false,
+                });
+                if (signInResult?.ok) {
+                    router.push('/onboarding');
+                } else {
+                    // Fallback to login page if auto-login fails
                     router.push('/login');
-                }, 2000);
+                }
             }
         } catch (err) {
             setError('Error de conexión');
