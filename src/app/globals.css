@@ -2570,10 +2570,21 @@ textarea.form-input {
   .chart-container {
     width: 100% !important;
     max-width: 100% !important;
-    min-height: 240px;
-    height: auto !important;
+    min-height: 260px;
     padding: 0.75rem;
     overflow: hidden;
+  }
+
+  .chart-container.chart-bar {
+    min-height: 260px;
+  }
+
+  .chart-container.chart-pie {
+    min-height: 280px;
+  }
+
+  .chart-container.chart-line {
+    min-height: 260px;
   }
 
   /* Recharts specific fixes */
