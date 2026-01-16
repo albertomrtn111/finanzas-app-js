@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import Providers from "@/components/Providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,10 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: "NextFinance",
   description: "Gestiona tus finanzas personales de forma inteligente",
+  applicationName: "NextFinance",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: [
-      { url: "/favicon.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
       { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
@@ -45,7 +47,9 @@ export default function RootLayout({ children }) {
   return (
     <html lang="es">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        {children}
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );
