@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     LineChart, Line, Legend, PieChart, Pie, Cell
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
@@ -20,8 +20,6 @@ export default function InversionesResumenPage() {
             .catch((error) => console.error('Error loading investments:', error))
             .finally(() => setLoading(false));
     }, []);
-
-
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -108,6 +106,11 @@ export default function InversionesResumenPage() {
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value);
 
+    // Refresh keys
+    const assetTypeRefreshKey = assetTypeData.length > 0
+        ? assetTypeData.map(d => d.value.toFixed(0)).join('-')
+        : '0';
+
     // Evolution data: contributions vs market value over time
     const dateMap = {};
     let cumulativeContrib = 0;
@@ -142,8 +145,13 @@ export default function InversionesResumenPage() {
         });
     });
 
+    const evolutionRefreshKey = evolutionWithAccumulation.length;
+
     // Distribution chart data
     const distData = accountSummary.map((a) => ({ name: a.account, value: a.valor })).sort((a, b) => b.value - a.value);
+    const distRefreshKey = distData.length > 0
+        ? distData.slice(0, 6).map(d => d.value.toFixed(0)).join('-')
+        : '0';
 
     return (
         <div className="page-container">
@@ -203,44 +211,61 @@ export default function InversionesResumenPage() {
 
             {/* Distribution by Asset Type */}
             <div className="grid grid-2 gap-lg">
-                <ChartContainer title="Distribución por tipo de activo" heightMobile={260} heightDesktop={260} className="chart-pie">
-                    <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                            <Pie
-                                data={assetTypeData}
-                                cx="50%"
-                                cy="45%"
-                                innerRadius={35}
-                                outerRadius={65}
-                                dataKey="value"
-                                labelLine={false}
-                            >
-                                {assetTypeData.map((_, index) => (
-                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                ))}
-                            </Pie>
-                            <Tooltip
-                                formatter={(v) => formatCurrency(v)}
-                                contentStyle={{
-                                    maxWidth: '180px',
-                                    fontSize: '12px',
-                                    background: 'var(--bg-primary)',
-                                    border: '1px solid var(--border-color)'
-                                }}
-                            />
-                            <Legend
-                                layout="horizontal"
-                                verticalAlign="bottom"
-                                align="center"
-                                wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
-                            />
-                        </PieChart>
-                    </ResponsiveContainer>
-                </ChartContainer>
+                <ChartContainer
+                    title="Distribución por tipo de activo"
+                    heightMobile={300}
+                    heightDesktop={280}
+                    className="chart-pie"
+                    refreshKey={assetTypeRefreshKey}
+                    render={({ width, height }) => {
+                        const size = Math.min(width, height);
+                        const outerR = size * 0.38;
+                        const innerR = size * 0.25;
+                        return (
+                            <PieChart width={width} height={height}>
+                                <Pie
+                                    data={assetTypeData}
+                                    cx={width / 2}
+                                    cy={height / 2}
+                                    innerRadius={innerR}
+                                    outerRadius={outerR}
+                                    dataKey="value"
+                                    labelLine={false}
+                                >
+                                    {assetTypeData.map((_, index) => (
+                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                    ))}
+                                </Pie>
+                                <Tooltip
+                                    formatter={(v) => formatCurrency(v)}
+                                    contentStyle={{
+                                        maxWidth: '180px',
+                                        fontSize: '12px',
+                                        background: 'var(--bg-primary)',
+                                        border: '1px solid var(--border-color)'
+                                    }}
+                                />
+                                <Legend
+                                    layout="horizontal"
+                                    verticalAlign="bottom"
+                                    align="center"
+                                    wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
+                                />
+                            </PieChart>
+                        );
+                    }}
+                />
 
-                <ChartContainer title="Distribución por producto" heightMobile={260} heightDesktop={260} className="chart-bar">
-                    <ResponsiveContainer width="100%" height="100%">
+                <ChartContainer
+                    title="Distribución por producto"
+                    heightMobile={300}
+                    heightDesktop={280}
+                    className="chart-bar"
+                    refreshKey={distRefreshKey}
+                    render={({ width, height, isMobile }) => (
                         <BarChart
+                            width={width}
+                            height={height}
                             data={distData.slice(0, 6)}
                             layout="vertical"
                             margin={{ left: 5, right: 15, top: 5, bottom: 5 }}
@@ -254,9 +279,9 @@ export default function InversionesResumenPage() {
                             <YAxis
                                 type="category"
                                 dataKey="name"
-                                width={70}
-                                tick={{ fontSize: 10 }}
-                                tickFormatter={(v) => v.length > 10 ? v.substring(0, 10) + '…' : v}
+                                width={isMobile ? 60 : 70}
+                                tick={{ fontSize: isMobile ? 9 : 10 }}
+                                tickFormatter={(v) => v.length > (isMobile ? 10 : 12) ? v.substring(0, isMobile ? 10 : 12) + '…' : v}
                             />
                             <Tooltip
                                 formatter={(v) => formatCurrency(v)}
@@ -269,17 +294,24 @@ export default function InversionesResumenPage() {
                             />
                             <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} maxBarSize={30} />
                         </BarChart>
-                    </ResponsiveContainer>
-                </ChartContainer>
+                    )}
+                />
             </div>
 
             {/* Evolution Chart - Dual Line */}
             {evolutionWithAccumulation.length > 1 && (
-                <ChartContainer title="Evolución: Aportaciones vs Valor" heightMobile={240} heightDesktop={240} className="chart-line">
-                    <ResponsiveContainer width="100%" height="100%">
+                <ChartContainer
+                    title="Evolución: Aportaciones vs Valor"
+                    heightMobile={280}
+                    heightDesktop={260}
+                    className="chart-line"
+                    refreshKey={evolutionRefreshKey}
+                    render={({ width, height, isMobile }) => (
                         <LineChart
+                            width={width}
+                            height={height}
                             data={evolutionWithAccumulation}
-                            margin={{ left: 0, right: 10, top: 10, bottom: 5 }}
+                            margin={{ left: 0, right: isMobile ? 10 : 20, top: 10, bottom: 5 }}
                         >
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                             <XAxis
@@ -321,14 +353,17 @@ export default function InversionesResumenPage() {
                                 name="Valor"
                             />
                         </LineChart>
-                    </ResponsiveContainer>
-                    <p className="text-muted text-sm mt-sm">
-                        {totalGain >= 0
-                            ? `📈 Plusvalía: ${formatCurrency(totalGain)}`
-                            : `📉 Minusvalía: ${formatCurrency(Math.abs(totalGain))}`
-                        }
-                    </p>
-                </ChartContainer>
+                    )}
+                />
+            )}
+
+            {evolutionWithAccumulation.length > 1 && (
+                <p className="text-muted text-sm mt-sm" style={{ marginBottom: '2rem' }}>
+                    {totalGain >= 0
+                        ? `📈 Plusvalía: ${formatCurrency(totalGain)}`
+                        : `📉 Minusvalía: ${formatCurrency(Math.abs(totalGain))}`
+                    }
+                </p>
             )}
 
             {/* Detail Table with Weight */}
