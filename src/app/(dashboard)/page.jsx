@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
@@ -343,32 +343,33 @@ export default function HomePage() {
                     <div className="premium-card-body">
                         {investmentsByType.length > 0 ? (
                             <>
-                                {/* Chart with explicit dimensions for mobile */}
-                                <div style={{
-                                    width: '100%',
-                                    minWidth: 0,
-                                    height: 180,
-                                    position: 'relative',
-                                    marginBottom: 'var(--spacing-md)'
-                                }}>
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <PieChart>
-                                            <Pie
-                                                data={investmentsByType}
-                                                cx="50%"
-                                                cy="50%"
-                                                innerRadius={45}
-                                                outerRadius={70}
-                                                dataKey="value"
-                                                paddingAngle={2}
-                                            >
-                                                {investmentsByType.map((_, index) => (
-                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                ))}
-                                            </Pie>
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
+                                {/* Chart using render prop with measured dimensions */}
+                                <ChartContainer
+                                    heightMobile={180}
+                                    heightDesktop={180}
+                                    render={({ width, height }) => {
+                                        const size = Math.min(width, height);
+                                        const outerR = size * 0.38;
+                                        const innerR = size * 0.25;
+                                        return (
+                                            <PieChart width={width} height={height}>
+                                                <Pie
+                                                    data={investmentsByType}
+                                                    cx={width / 2}
+                                                    cy={height / 2}
+                                                    innerRadius={innerR}
+                                                    outerRadius={outerR}
+                                                    dataKey="value"
+                                                    paddingAngle={2}
+                                                >
+                                                    {investmentsByType.map((_, index) => (
+                                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                    ))}
+                                                </Pie>
+                                            </PieChart>
+                                        );
+                                    }}
+                                />
                                 {/* Legend */}
                                 <div className="donut-legend">
                                     {investmentsByType.map((item, idx) => (

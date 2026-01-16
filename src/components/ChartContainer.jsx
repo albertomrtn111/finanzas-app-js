@@ -6,17 +6,22 @@ import { useState, useEffect, useRef, useCallback } from 'react';
  * ChartContainer - Wrapper for Recharts that ensures proper sizing on mobile
  * 
  * Uses ResizeObserver to measure actual container dimensions and only mounts
- * the chart when dimensions are valid. Remounts chart via key when dimensions
- * change significantly to force Recharts to recalculate.
+ * the chart when dimensions are valid.
+ * 
+ * Supports two modes:
+ * 1. render prop: render({ width, height, isMobile }) - recommended for mobile
+ * 2. children: for backwards compatibility with ResponsiveContainer
  * 
  * @param {string} title - Chart title
- * @param {React.ReactNode} children - ResponsiveContainer with chart
+ * @param {Function} render - Render prop: ({ width, height, isMobile }) => ReactNode
+ * @param {React.ReactNode} children - Fallback if render not provided
  * @param {number} heightMobile - Height in px for mobile (default: 260)
  * @param {number} heightDesktop - Height in px for desktop (default: 320)
  * @param {string} className - Additional CSS classes
  */
 export default function ChartContainer({
     title,
+    render,
     children,
     heightMobile = 260,
     heightDesktop = 320,
@@ -53,7 +58,7 @@ export default function ChartContainer({
                 const { width, height } = entry.contentRect;
                 setDims((prev) => {
                     // Only update if dimensions changed significantly
-                    if (Math.abs(prev.w - width) > 5 || Math.abs(prev.h - height) > 5) {
+                    if (Math.abs(prev.w - width) > 2 || Math.abs(prev.h - height) > 2) {
                         return { w: Math.floor(width), h: Math.floor(height) };
                     }
                     return prev;
@@ -65,7 +70,7 @@ export default function ChartContainer({
         return () => observer.disconnect();
     }, []);
 
-    // Bump render key when dimensions become valid (from 0 to valid)
+    // Bump render key when dimensions become valid
     useEffect(() => {
         if (dims.w > 0 && dims.h > 0) {
             setRenderKey((k) => k + 1);
@@ -74,7 +79,6 @@ export default function ChartContainer({
 
     // Handle layout change event (from sidebar)
     const handleLayoutChange = useCallback(() => {
-        // Small delay to let layout settle, then bump key to force remeasure
         setTimeout(() => {
             setRenderKey((k) => k + 1);
         }, 100);
@@ -82,13 +86,9 @@ export default function ChartContainer({
 
     // Listen to custom layout change event and iOS-specific events
     useEffect(() => {
-        // Custom event from sidebar
         window.addEventListener('app:layoutchange', handleLayoutChange);
-
-        // iOS orientation change
         window.addEventListener('orientationchange', handleLayoutChange);
 
-        // iOS visualViewport resize (for keyboard, toolbar changes)
         const viewport = window.visualViewport;
         if (viewport) {
             viewport.addEventListener('resize', handleLayoutChange);
@@ -105,6 +105,14 @@ export default function ChartContainer({
 
     // Determine if we should show the chart
     const showChart = dims.w > 0 && dims.h > 0;
+
+    // Render content - prefer render prop, fallback to children
+    const renderContent = () => {
+        if (render && typeof render === 'function') {
+            return render({ width: dims.w, height: dims.h, isMobile });
+        }
+        return children;
+    };
 
     return (
         <div
@@ -128,7 +136,7 @@ export default function ChartContainer({
             >
                 {showChart ? (
                     <div key={`chart-${renderKey}`} style={{ width: '100%', height: '100%' }}>
-                        {children}
+                        {renderContent()}
                     </div>
                 ) : (
                     <div
