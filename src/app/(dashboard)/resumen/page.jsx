@@ -125,8 +125,6 @@ export default function ResumenPage() {
     // Smart Alerts
     const generateSmartAlerts = () => {
         const alerts = [];
-
-        // Calculate average expense by category
         const expenseByCategory = {};
 
         filteredExpenses.forEach((e) => {
@@ -134,14 +132,12 @@ export default function ResumenPage() {
             expenseByCategory[e.category] += parseFloat(e.amount);
         });
 
-        // Current month by category
         const currentMonthByCategory = {};
         currentMonthExpenses.forEach((e) => {
             if (!currentMonthByCategory[e.category]) currentMonthByCategory[e.category] = 0;
             currentMonthByCategory[e.category] += parseFloat(e.amount);
         });
 
-        // Calculate historical monthly average
         const monthsWithData = new Set(filteredExpenses.map(e => new Date(e.date).getMonth())).size || 1;
 
         Object.entries(currentMonthByCategory).forEach(([category, amount]) => {
@@ -157,7 +153,6 @@ export default function ResumenPage() {
             }
         });
 
-        // Investment capacity
         if (monthSavings > 0 && monthlyBudget > 0) {
             const safeToInvest = monthSavings * 0.7;
             if (safeToInvest > 100) {
@@ -170,7 +165,6 @@ export default function ResumenPage() {
             }
         }
 
-        // Budget at risk
         if (monthBudgetRatio > 70 && monthBudgetRatio < 100) {
             alerts.push({
                 type: 'warning',
@@ -180,7 +174,6 @@ export default function ResumenPage() {
             });
         }
 
-        // Good savings rate
         if (savingsRate > 20) {
             alerts.push({
                 type: 'success',
@@ -198,10 +191,10 @@ export default function ResumenPage() {
     // Data for monthly chart
     const monthNamesShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const monthlyData = monthNamesShort.map((name, idx) => {
-        const monthIncomes = filteredIncomes.filter((i) => new Date(i.date).getMonth() === idx);
-        const monthExpenses = filteredExpenses.filter((e) => new Date(e.date).getMonth() === idx);
-        const inc = monthIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-        const exp = monthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+        const mIncomes = filteredIncomes.filter((i) => new Date(i.date).getMonth() === idx);
+        const mExpenses = filteredExpenses.filter((e) => new Date(e.date).getMonth() === idx);
+        const inc = mIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+        const exp = mExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
         return { name, income: inc, expenses: exp, savings: inc - exp };
     }).filter((d) => d.income > 0 || d.expenses > 0);
 
@@ -211,12 +204,12 @@ export default function ResumenPage() {
         : monthSavings;
 
     // Category data
-    const expenseByCategory = {};
+    const expenseByCat = {};
     filteredExpenses.forEach((e) => {
-        if (!expenseByCategory[e.category]) expenseByCategory[e.category] = 0;
-        expenseByCategory[e.category] += parseFloat(e.amount);
+        if (!expenseByCat[e.category]) expenseByCat[e.category] = 0;
+        expenseByCat[e.category] += parseFloat(e.amount);
     });
-    const categoryData = Object.entries(expenseByCategory)
+    const categoryData = Object.entries(expenseByCat)
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value);
 
@@ -227,6 +220,7 @@ export default function ResumenPage() {
         expenseByType[type] = (expenseByType[type] || 0) + parseFloat(e.amount);
     });
     const typeData = Object.entries(expenseByType).map(([name, value]) => ({ name, value }));
+    const typeDataTotal = typeData.reduce((sum, t) => sum + t.value, 0);
 
     // Available years
     const allYears = [...new Set([
@@ -400,6 +394,7 @@ export default function ResumenPage() {
                     title="Evolución mensual del ahorro"
                     heightMobile={280}
                     heightDesktop={260}
+                    refreshKey={monthlyData.length}
                     render={({ width, height, isMobile }) => (
                         <BarChart
                             width={width}
@@ -455,6 +450,7 @@ export default function ResumenPage() {
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
+                        refreshKey={categoryData.length}
                         render={({ width, height }) => {
                             const size = Math.min(width, height);
                             const outerR = size * 0.28;
@@ -494,6 +490,7 @@ export default function ResumenPage() {
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
+                        refreshKey={typeDataTotal}
                         render={({ width, height }) => {
                             const size = Math.min(width, height);
                             const outerR = size * 0.28;

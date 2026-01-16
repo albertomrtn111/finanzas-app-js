@@ -18,6 +18,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
  * @param {number} heightMobile - Height in px for mobile (default: 260)
  * @param {number} heightDesktop - Height in px for desktop (default: 320)
  * @param {string} className - Additional CSS classes
+ * @param {any} refreshKey - When this value changes, force chart remount (for async data)
  */
 export default function ChartContainer({
     title,
@@ -25,12 +26,14 @@ export default function ChartContainer({
     children,
     heightMobile = 260,
     heightDesktop = 320,
-    className = ''
+    className = '',
+    refreshKey
 }) {
     const containerRef = useRef(null);
     const [dims, setDims] = useState({ w: 0, h: 0 });
     const [renderKey, setRenderKey] = useState(0);
     const [isMobile, setIsMobile] = useState(false);
+    const prevRefreshKey = useRef(refreshKey);
 
     // Determine container height based on viewport
     const containerHeight = isMobile ? heightMobile : heightDesktop;
@@ -70,12 +73,23 @@ export default function ChartContainer({
         return () => observer.disconnect();
     }, []);
 
-    // Bump render key when dimensions become valid
+    // Bump render key when dimensions become valid or change significantly
     useEffect(() => {
         if (dims.w > 0 && dims.h > 0) {
             setRenderKey((k) => k + 1);
         }
-    }, [dims.w > 0 && dims.h > 0]);
+    }, [dims.w, dims.h]);
+
+    // Bump render key when refreshKey changes (for async data updates)
+    useEffect(() => {
+        if (refreshKey !== prevRefreshKey.current) {
+            prevRefreshKey.current = refreshKey;
+            // Only bump if dimensions are already valid
+            if (dims.w > 0 && dims.h > 0) {
+                setRenderKey((k) => k + 1);
+            }
+        }
+    }, [refreshKey, dims.w, dims.h]);
 
     // Handle layout change event (from sidebar)
     const handleLayoutChange = useCallback(() => {
@@ -165,7 +179,7 @@ export default function ChartContainer({
                         color: 'var(--text-muted)',
                     }}
                 >
-                    Chart size: {dims.w}x{dims.h} - key: {renderKey} - mobile: {isMobile ? 'yes' : 'no'}
+                    Chart: {dims.w}x{dims.h} | key: {renderKey} | refresh: {String(refreshKey)} | mobile: {isMobile ? 'yes' : 'no'}
                 </div>
             )}
         </div>
