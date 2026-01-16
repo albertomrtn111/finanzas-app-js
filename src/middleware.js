@@ -4,18 +4,19 @@ import { getToken } from 'next-auth/jwt';
 export async function middleware(request) {
     const { pathname } = request.nextUrl;
 
-    // Skip middleware for these paths
+    // Skip middleware for these paths - redundant with matcher but good for safety
     const publicPaths = [
         '/login',
         '/register',
         '/api',
         '/_next',
         '/favicon.ico',
+        '/manifest.webmanifest',
         '/onboarding'
     ];
 
-    // Check if path should be skipped
-    if (publicPaths.some(path => pathname.startsWith(path))) {
+    // Check if path is public or is a static file (image, etc)
+    if (publicPaths.some(path => pathname.startsWith(path)) || pathname.endsWith('.png')) {
         return NextResponse.next();
     }
 
@@ -31,10 +32,6 @@ export async function middleware(request) {
         return NextResponse.redirect(loginUrl);
     }
 
-    // Check onboarding status - fetch from API won't work in middleware
-    // We'll handle this client-side in the dashboard layout instead
-    // Middleware just handles auth
-
     return NextResponse.next();
 }
 
@@ -45,8 +42,9 @@ export const config = {
          * - api (API routes)
          * - _next/static (static files)
          * - _next/image (image optimization files)
-         * - favicon.ico (favicon file)
+         * - favicon.ico, manifest.webmanifest
+         * - standard image extensions (png, jpg, jpeg, svg)
          */
-        '/((?!api|_next/static|_next/image|favicon.ico).*)',
+        '/((?!api|_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.png$|.*\\.jpg$|.*\\.svg$).*)',
     ],
 };
