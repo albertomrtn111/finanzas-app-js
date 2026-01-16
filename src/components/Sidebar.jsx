@@ -78,15 +78,8 @@ export default function Sidebar() {
                 >
                     <span className="hamburger-icon">{isOpen ? '✕' : '☰'}</span>
                 </button>
-                <div className="mobile-brand">
-                    <Image
-                        src="/NextFinance.png"
-                        alt="NextFinance"
-                        width={24}
-                        height={24}
-                        priority
-                        style={{ borderRadius: '4px' }}
-                    />
+                <div className="mobile-brand" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
+                    {/* Logo removed for mobile as requested - keeps header clean */}
                     <span className="mobile-title">{pageTitle}</span>
                 </div>
                 <Link href="/perfil" className="mobile-profile-btn">
