@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 
@@ -29,7 +30,7 @@ function getPageTitle(pathname) {
     if (pathname.startsWith('/inversiones')) return 'Inversiones';
     if (pathname.startsWith('/perfil')) return 'Mi Perfil';
     if (pathname.startsWith('/onboarding')) return 'Configuración';
-    return 'Finanzas';
+    return 'NextFinance';
 }
 
 export default function Sidebar() {
@@ -77,7 +78,17 @@ export default function Sidebar() {
                 >
                     <span className="hamburger-icon">{isOpen ? '✕' : '☰'}</span>
                 </button>
-                <span className="mobile-title">{pageTitle}</span>
+                <div className="mobile-brand">
+                    <Image
+                        src="/NextFinance.png"
+                        alt="NextFinance"
+                        width={24}
+                        height={24}
+                        priority
+                        style={{ borderRadius: '4px' }}
+                    />
+                    <span className="mobile-title">{pageTitle}</span>
+                </div>
                 <Link href="/perfil" className="mobile-profile-btn">
                     👤
                 </Link>
@@ -93,10 +104,17 @@ export default function Sidebar() {
             <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
                 {/* Header with logo and user avatar */}
                 <div className="sidebar-header">
-                    <div className="sidebar-logo">
-                        <span>💰</span>
-                        <span>Finanzas</span>
-                    </div>
+                    <Link href="/" className="sidebar-logo">
+                        <Image
+                            src="/NextFinance.png"
+                            alt="NextFinance"
+                            width={28}
+                            height={28}
+                            priority
+                            style={{ borderRadius: '6px' }}
+                        />
+                        <span>NextFinance</span>
+                    </Link>
                     <Link href="/perfil" title="Mi perfil" className="sidebar-profile-btn">
                         👤
                     </Link>
