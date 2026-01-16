@@ -32,11 +32,11 @@ export const metadata = {
     statusBarStyle: "black-translucent",
     title: "NextFinance",
   },
-  themeColor: "#3B82F6",
+  themeColor: "#0a0a0f",
 };
 
 export const viewport = {
-  themeColor: "#3B82F6",
+  themeColor: "#0a0a0f",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
