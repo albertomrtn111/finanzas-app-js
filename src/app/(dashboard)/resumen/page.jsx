@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-    PieChart, Pie, Cell, Legend, LineChart, Line, ReferenceLine
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+    PieChart, Pie, Cell, Legend, ReferenceLine
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 
@@ -20,8 +20,6 @@ export default function ResumenPage() {
     useEffect(() => {
         loadData();
     }, []);
-
-
 
     const loadData = async () => {
         setLoading(true);
@@ -130,7 +128,6 @@ export default function ResumenPage() {
 
         // Calculate average expense by category
         const expenseByCategory = {};
-        const historicalExpenseByCategory = {};
 
         filteredExpenses.forEach((e) => {
             if (!expenseByCategory[e.category]) expenseByCategory[e.category] = 0;
@@ -162,7 +159,7 @@ export default function ResumenPage() {
 
         // Investment capacity
         if (monthSavings > 0 && monthlyBudget > 0) {
-            const safeToInvest = monthSavings * 0.7; // Keep 30% as buffer
+            const safeToInvest = monthSavings * 0.7;
             if (safeToInvest > 100) {
                 alerts.push({
                     type: 'success',
@@ -193,7 +190,7 @@ export default function ResumenPage() {
             });
         }
 
-        return alerts.slice(0, 4); // Max 4 alerts
+        return alerts.slice(0, 4);
     };
 
     const smartAlerts = generateSmartAlerts();
@@ -208,7 +205,7 @@ export default function ResumenPage() {
         return { name, income: inc, expenses: exp, savings: inc - exp };
     }).filter((d) => d.income > 0 || d.expenses > 0);
 
-    // Savings target line (average monthly savings goal)
+    // Savings target line
     const avgMonthlySavingsTarget = monthlyBudget > 0
         ? (monthIncome - monthlyBudget)
         : monthSavings;
@@ -397,26 +394,32 @@ export default function ResumenPage() {
                 </div>
             )}
 
-            {/* Monthly Savings Chart with Target Line */}
+            {/* Chart 1: Monthly Savings Bar Chart */}
             {monthlyData.length > 0 && (
-                <ChartContainer title="Evolución mensual del ahorro" heightMobile={240} heightDesktop={240}>
-                    <ResponsiveContainer width="100%" height="100%">
+                <ChartContainer
+                    title="Evolución mensual del ahorro"
+                    heightMobile={280}
+                    heightDesktop={260}
+                    render={({ width, height, isMobile }) => (
                         <BarChart
+                            width={width}
+                            height={height}
                             data={monthlyData}
-                            margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
+                            margin={{ top: 10, right: isMobile ? 10 : 20, left: isMobile ? 0 : 10, bottom: 5 }}
                         >
                             <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                             <XAxis
                                 dataKey="name"
                                 stroke="var(--text-tertiary)"
-                                tick={{ fontSize: 11 }}
+                                tick={{ fontSize: isMobile ? 10 : 11 }}
                                 tickLine={false}
+                                interval="preserveStartEnd"
                             />
                             <YAxis
                                 stroke="var(--text-tertiary)"
                                 tick={{ fontSize: 10 }}
                                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-                                width={40}
+                                width={isMobile ? 35 : 45}
                             />
                             <Tooltip
                                 formatter={(value) => formatCurrency(value)}
@@ -430,7 +433,7 @@ export default function ResumenPage() {
                             <Bar
                                 dataKey="savings"
                                 radius={[4, 4, 0, 0]}
-                                maxBarSize={60}
+                                maxBarSize={isMobile ? 40 : 60}
                             >
                                 {monthlyData.map((entry, index) => (
                                     <Cell
@@ -440,68 +443,86 @@ export default function ResumenPage() {
                                 ))}
                             </Bar>
                         </BarChart>
-                    </ResponsiveContainer>
-                </ChartContainer>
+                    )}
+                />
             )}
 
             <div className="grid grid-2 gap-lg">
-                {/* Category Chart */}
+                {/* Chart 2: Category Pie Chart */}
                 {categoryData.length > 0 && (
-                    <ChartContainer title={`Gastos por categoría (${selectedYear})`} heightMobile={260} heightDesktop={260} className="chart-pie">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={categoryData}
-                                    cx="50%"
-                                    cy="45%"
-                                    innerRadius={40}
-                                    outerRadius={70}
-                                    dataKey="value"
-                                    labelLine={false}
-                                >
-                                    {categoryData.map((_, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip formatter={(value) => formatCurrency(value)} />
-                                <Legend
-                                    layout="horizontal"
-                                    verticalAlign="bottom"
-                                    align="center"
-                                    wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </ChartContainer>
+                    <ChartContainer
+                        title={`Gastos por categoría (${selectedYear})`}
+                        heightMobile={300}
+                        heightDesktop={280}
+                        className="chart-pie"
+                        render={({ width, height }) => {
+                            const size = Math.min(width, height);
+                            const outerR = size * 0.28;
+                            const innerR = size * 0.18;
+                            return (
+                                <PieChart width={width} height={height}>
+                                    <Pie
+                                        data={categoryData}
+                                        cx={width / 2}
+                                        cy={height / 2 - 20}
+                                        innerRadius={innerR}
+                                        outerRadius={outerR}
+                                        dataKey="value"
+                                        labelLine={false}
+                                    >
+                                        {categoryData.map((_, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip formatter={(value) => formatCurrency(value)} />
+                                    <Legend
+                                        layout="horizontal"
+                                        verticalAlign="bottom"
+                                        align="center"
+                                        wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
+                                    />
+                                </PieChart>
+                            );
+                        }}
+                    />
                 )}
 
-                {/* Fixed vs Variable */}
+                {/* Chart 3: Fixed vs Variable Pie Chart */}
                 {typeData.length > 0 && (
-                    <ChartContainer title={`Gasto fijo vs variable (${selectedYear})`} heightMobile={260} heightDesktop={260} className="chart-pie">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={typeData}
-                                    cx="50%"
-                                    cy="45%"
-                                    innerRadius={40}
-                                    outerRadius={70}
-                                    dataKey="value"
-                                    labelLine={false}
-                                >
-                                    <Cell fill="#3B82F6" />
-                                    <Cell fill="#10B981" />
-                                </Pie>
-                                <Tooltip formatter={(value) => formatCurrency(value)} />
-                                <Legend
-                                    layout="horizontal"
-                                    verticalAlign="bottom"
-                                    align="center"
-                                    wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </ChartContainer>
+                    <ChartContainer
+                        title={`Gasto fijo vs variable (${selectedYear})`}
+                        heightMobile={300}
+                        heightDesktop={280}
+                        className="chart-pie"
+                        render={({ width, height }) => {
+                            const size = Math.min(width, height);
+                            const outerR = size * 0.28;
+                            const innerR = size * 0.18;
+                            return (
+                                <PieChart width={width} height={height}>
+                                    <Pie
+                                        data={typeData}
+                                        cx={width / 2}
+                                        cy={height / 2 - 20}
+                                        innerRadius={innerR}
+                                        outerRadius={outerR}
+                                        dataKey="value"
+                                        labelLine={false}
+                                    >
+                                        <Cell fill="#3B82F6" />
+                                        <Cell fill="#10B981" />
+                                    </Pie>
+                                    <Tooltip formatter={(value) => formatCurrency(value)} />
+                                    <Legend
+                                        layout="horizontal"
+                                        verticalAlign="bottom"
+                                        align="center"
+                                        wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
+                                    />
+                                </PieChart>
+                            );
+                        }}
+                    />
                 )}
             </div>
 
