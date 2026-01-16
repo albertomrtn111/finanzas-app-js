@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     PieChart, Pie, Cell, Legend
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
@@ -53,8 +53,6 @@ export default function PatrimonioPage() {
 
         loadData();
     }, []);
-
-
 
     const formatCurrency = (amount) => {
         const safeAmount = safeFloat(amount);
@@ -158,6 +156,11 @@ export default function PatrimonioPage() {
         { name: 'Efectivo', value: totalCash },
     ].filter((d) => d.value > 0);
 
+    // refreshKey for distribution chart
+    const distributionRefreshKey = distributionData.length > 0
+        ? distributionData.map(d => d.value.toFixed(0)).join('-')
+        : '0';
+
     // Detail by account with return calculation
     const allAccounts = useMemo(() => {
         const accounts = [];
@@ -194,6 +197,9 @@ export default function PatrimonioPage() {
 
         return accounts.sort((a, b) => b.value - a.value);
     }, [investmentsByAccount, contributionsByAccount, cashByAccount, totalPatrimonio]);
+
+    // refreshKey for accounts bar chart
+    const accountsRefreshKey = allAccounts.length;
 
     // Calculate YTD if we have January data
     const ytdGrowth = useMemo(() => {
@@ -340,16 +346,31 @@ export default function PatrimonioPage() {
             {/* Charts Grid */}
             <div className="grid grid-2 gap-lg">
                 {/* Distribution Pie Chart */}
-                <ChartContainer title="Distribución del patrimonio" heightMobile={260} heightDesktop={260} className="chart-pie">
-                    {distributionData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
+                <ChartContainer
+                    title="Distribución del patrimonio"
+                    heightMobile={300}
+                    heightDesktop={280}
+                    className="chart-pie"
+                    refreshKey={distributionRefreshKey}
+                    render={({ width, height }) => {
+                        if (distributionData.length === 0) {
+                            return (
+                                <div className="flex-center" style={{ height: '100%' }}>
+                                    <p className="text-muted">No hay datos para mostrar</p>
+                                </div>
+                            );
+                        }
+                        const size = Math.min(width, height);
+                        const outerR = size * 0.28;
+                        const innerR = size * 0.18;
+                        return (
+                            <PieChart width={width} height={height}>
                                 <Pie
                                     data={distributionData}
-                                    cx="50%"
-                                    cy="45%"
-                                    innerRadius={35}
-                                    outerRadius={65}
+                                    cx={width / 2}
+                                    cy={height / 2 - 20}
+                                    innerRadius={innerR}
+                                    outerRadius={outerR}
                                     dataKey="value"
                                     labelLine={false}
                                 >
@@ -373,27 +394,32 @@ export default function PatrimonioPage() {
                                     wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
                                 />
                             </PieChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div className="flex-center" style={{ height: '100%' }}>
-                            <p className="text-muted">No hay datos para mostrar</p>
-                        </div>
-                    )}
-                    <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
-                        <span className="text-muted text-sm">
-                            💡 {workingMoneyPct.toFixed(0)}% invertido
-                        </span>
-                    </div>
-                </ChartContainer>
+                        );
+                    }}
+                />
 
                 {/* Value by Account Bar Chart */}
-                <ChartContainer title="Valor por cuenta" heightMobile={260} heightDesktop={260} className="chart-bar">
-                    {allAccounts.length > 0 && allAccounts.some(a => a.value > 0) ? (
-                        <ResponsiveContainer width="100%" height="100%">
+                <ChartContainer
+                    title="Valor por cuenta"
+                    heightMobile={300}
+                    heightDesktop={280}
+                    className="chart-bar"
+                    refreshKey={accountsRefreshKey}
+                    render={({ width, height, isMobile }) => {
+                        if (allAccounts.length === 0 || !allAccounts.some(a => a.value > 0)) {
+                            return (
+                                <div className="flex-center" style={{ height: '100%' }}>
+                                    <p className="text-muted">No hay datos para mostrar</p>
+                                </div>
+                            );
+                        }
+                        return (
                             <BarChart
+                                width={width}
+                                height={height}
                                 data={allAccounts.slice(0, 6)}
                                 layout="vertical"
-                                margin={{ left: 5, right: 15, top: 5, bottom: 5 }}
+                                margin={{ top: 10, right: isMobile ? 10 : 20, left: isMobile ? 5 : 10, bottom: 5 }}
                             >
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
                                 <XAxis
@@ -404,9 +430,9 @@ export default function PatrimonioPage() {
                                 <YAxis
                                     type="category"
                                     dataKey="account"
-                                    width={70}
-                                    tick={{ fontSize: 10 }}
-                                    tickFormatter={(v) => v.length > 10 ? v.substring(0, 10) + '…' : v}
+                                    width={isMobile ? 60 : 80}
+                                    tick={{ fontSize: isMobile ? 9 : 10 }}
+                                    tickFormatter={(v) => v.length > (isMobile ? 8 : 12) ? v.substring(0, isMobile ? 8 : 12) + '…' : v}
                                 />
                                 <Tooltip
                                     formatter={(value) => formatCurrency(value)}
@@ -417,7 +443,7 @@ export default function PatrimonioPage() {
                                         border: '1px solid var(--border-color)'
                                     }}
                                 />
-                                <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={30}>
+                                <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={isMobile ? 24 : 30}>
                                     {allAccounts.slice(0, 6).map((entry, index) => (
                                         <Cell
                                             key={`cell-${index}`}
@@ -426,13 +452,16 @@ export default function PatrimonioPage() {
                                     ))}
                                 </Bar>
                             </BarChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div className="flex-center" style={{ height: '100%' }}>
-                            <p className="text-muted">No hay datos para mostrar</p>
-                        </div>
-                    )}
-                </ChartContainer>
+                        );
+                    }}
+                />
+            </div>
+
+            {/* Invested percentage note */}
+            <div style={{ textAlign: 'center', marginTop: '-0.5rem', marginBottom: '1rem' }}>
+                <span className="text-muted text-sm">
+                    💡 {workingMoneyPct.toFixed(0)}% de tu patrimonio está invertido
+                </span>
             </div>
 
             {/* Detail Table */}
