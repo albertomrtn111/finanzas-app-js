@@ -6,6 +6,7 @@ import {
     PieChart, Pie, Cell, Legend, ReferenceLine
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
+import CustomTooltip from '@/components/charts/CustomTooltip';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
@@ -427,10 +428,7 @@ export default function ResumenPage() {
                                 tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
                                 width={isMobile ? 35 : 45}
                             />
-                            <Tooltip
-                                formatter={(value) => formatCurrency(value)}
-                                contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}
-                            />
+                            <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                             {/* Disabled ReferenceLine for complexity reduction - could read 'monthlyBudgetBase' */}
                             <Bar
                                 dataKey="savings"
@@ -477,7 +475,7 @@ export default function ResumenPage() {
                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip formatter={(value) => formatCurrency(value)} />
+                                    <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                                     <Legend
                                         layout="horizontal"
                                         verticalAlign="bottom"
@@ -516,7 +514,7 @@ export default function ResumenPage() {
                                         <Cell fill="#3B82F6" />
                                         <Cell fill="#10B981" />
                                     </Pie>
-                                    <Tooltip formatter={(value) => formatCurrency(value)} />
+                                    <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                                     <Legend
                                         layout="horizontal"
                                         verticalAlign="bottom"

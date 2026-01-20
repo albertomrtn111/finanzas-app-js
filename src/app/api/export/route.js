@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
 import archiver from 'archiver';
-import { Parser } from 'json2csv';
+
 
 export const dynamic = 'force-dynamic';
 
@@ -190,20 +190,44 @@ async function generateZip(data, filename) {
         ];
 
         for (const table of tables) {
-            if (table.data.length > 0) {
-                try {
-                    const parser = new Parser({ delimiter: ';' });
-                    const csv = parser.parse(table.data);
-                    archive.append(csv, { name: `${table.name}.csv` });
-                } catch (e) {
-                    console.error(`Error parsing ${table.name}:`, e);
-                }
-            } else {
-                // Empty file with headers if no data
-                archive.append('', { name: `${table.name}.csv` });
+            try {
+                // Determine headers from the first item if specific headers aren't strict,
+                // or just use all keys from the objects (since we selected specific fields in Prisma)
+                const csvData = toCSV(table.data);
+                archive.append(csvData, { name: `${table.name}.csv` });
+            } catch (e) {
+                console.error(`Error generating CSV for ${table.name}:`, e);
+                // Append error note in the CSV file instead of failing silently
+                archive.append(`Error generating CSV: ${e.message}`, { name: `${table.name}_error.txt` });
             }
         }
 
         archive.finalize();
     });
+}
+
+// Simple helper to convert array of objects to CSV
+function toCSV(data) {
+    if (!data || !data.length) return '';
+
+    // Get headers from first object
+    const headers = Object.keys(data[0]);
+    const headerRow = headers.join(';');
+
+    const rows = data.map(row => {
+        return headers.map(header => {
+            const val = row[header];
+            if (val === null || val === undefined) return '';
+            if (val instanceof Date) return val.toISOString();
+            // Escape quotes if necessary, though simple data usually doesn't need it.
+            // For safety, wrap in quotes if it contains delimiter
+            const str = String(val);
+            if (str.includes(';') || str.includes('"') || str.includes('\n')) {
+                return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+        }).join(';');
+    });
+
+    return [headerRow, ...rows].join('\n');
 }

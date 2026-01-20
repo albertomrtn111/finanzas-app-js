@@ -7,6 +7,7 @@ import {
     PieChart, Pie, Cell, Legend
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
+import CustomTooltip from '@/components/charts/CustomTooltip';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -378,15 +379,7 @@ export default function PatrimonioPage() {
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip
-                                    formatter={(value) => formatCurrency(value)}
-                                    contentStyle={{
-                                        maxWidth: '180px',
-                                        fontSize: '12px',
-                                        background: 'var(--bg-primary)',
-                                        border: '1px solid var(--border-color)'
-                                    }}
-                                />
+                                <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                                 <Legend
                                     layout="horizontal"
                                     verticalAlign="bottom"
@@ -434,15 +427,7 @@ export default function PatrimonioPage() {
                                     tick={{ fontSize: isMobile ? 9 : 10 }}
                                     tickFormatter={(v) => v.length > (isMobile ? 8 : 12) ? v.substring(0, isMobile ? 8 : 12) + '…' : v}
                                 />
-                                <Tooltip
-                                    formatter={(value) => formatCurrency(value)}
-                                    contentStyle={{
-                                        maxWidth: '180px',
-                                        fontSize: '12px',
-                                        background: 'var(--bg-primary)',
-                                        border: '1px solid var(--border-color)'
-                                    }}
-                                />
+                                <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                                 <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={isMobile ? 24 : 30}>
                                     {allAccounts.slice(0, 6).map((entry, index) => (
                                         <Cell

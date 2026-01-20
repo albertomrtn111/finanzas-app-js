@@ -8,13 +8,16 @@ export default function EfectivoPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
+    const [editingId, setEditingId] = useState(null);
 
-    const [form, setForm] = useState({
+    const initialFormState = {
         date: new Date().toISOString().split('T')[0],
         account: '',
         current_value: '',
         notes: '',
-    });
+    };
+
+    const [form, setForm] = useState(initialFormState);
 
     useEffect(() => {
         loadData();
@@ -31,7 +34,8 @@ export default function EfectivoPage() {
                 const data = await cashRes.json();
                 const cashData = Array.isArray(data) ? data : [];
                 setSnapshots(cashData);
-                if (cashData.length > 0 && !form.account) {
+                // Only set default if NOT editing and no account selected
+                if (cashData.length > 0 && !form.account && !editingId) {
                     setForm((f) => ({ ...f, account: cashData[0].account }));
                 }
             }
@@ -48,6 +52,26 @@ export default function EfectivoPage() {
     const showMessage = (type, text) => {
         setMessage({ type, text });
         setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    };
+
+    const cancelEdit = () => {
+        setEditingId(null);
+        setForm({
+            ...initialFormState,
+            account: snapshots.length > 0 ? snapshots[0].account : ''
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleEdit = (snap) => {
+        setEditingId(snap.id);
+        setForm({
+            date: snap.date.split('T')[0],
+            account: snap.account,
+            current_value: snap.current_value,
+            notes: snap.notes || '',
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     // Calculate current cash total (latest snapshot per account)
@@ -115,10 +139,12 @@ export default function EfectivoPage() {
     // Liquidity preview
     const liquidityPreview = useMemo(() => {
         if (!form.current_value || !form.account) return null;
+        if (editingId) return null; // Disable preview while editing to avoid confusion with historical vs current
+
         const newValue = parseFloat(form.current_value);
         const diff = newValue - currentAccountCash;
         return { currentValue: currentAccountCash, newValue, diff };
-    }, [form.current_value, form.account, currentAccountCash]);
+    }, [form.current_value, form.account, currentAccountCash, editingId]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -129,19 +155,22 @@ export default function EfectivoPage() {
 
         setSaving(true);
         try {
+            const method = editingId ? 'PUT' : 'POST';
+            const body = editingId ? { ...form, id: editingId } : form;
+
             const res = await fetch('/api/cash', {
-                method: 'POST',
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(form),
+                body: JSON.stringify(body),
             });
 
             if (res.ok) {
-                showMessage('success', 'Snapshot guardado');
-                setForm({ ...form, current_value: '', notes: '' });
+                showMessage('success', `Snapshot ${editingId ? 'actualizado' : 'guardado'}`);
+                cancelEdit();
                 loadData();
             } else {
                 const data = await res.json();
-                showMessage('error', data.error || 'Error al guardar');
+                showMessage('error', data.error || `Error al ${editingId ? 'actualizar' : 'guardar'}`);
             }
         } catch (error) {
             showMessage('error', 'Error de conexión');
@@ -155,6 +184,7 @@ export default function EfectivoPage() {
             const res = await fetch(`/api/cash?id=${id}`, { method: 'DELETE' });
             if (res.ok) {
                 showMessage('success', 'Eliminado');
+                if (editingId === id) cancelEdit();
                 loadData();
             }
         } catch (error) {
@@ -246,7 +276,14 @@ export default function EfectivoPage() {
             <div className="grid grid-2 gap-lg">
                 {/* Form */}
                 <div className="card">
-                    <div className="card-header"><h3>Nuevo snapshot</h3></div>
+                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <h3>{editingId ? 'Editar snapshot' : 'Nuevo snapshot'}</h3>
+                        {editingId && (
+                            <button className="btn btn-sm btn-outline" onClick={cancelEdit}>
+                                Cancelar
+                            </button>
+                        )}
+                    </div>
                     <div className="card-body">
                         <form onSubmit={handleSubmit}>
                             <div className="grid grid-2 gap-md">
@@ -288,7 +325,7 @@ export default function EfectivoPage() {
                                 />
                             </div>
 
-                            {/* Liquidity Preview */}
+                            {/* Liquidity Preview (Hidden on edit) */}
                             {liquidityPreview && (
                                 <div className={`smart-alert ${liquidityPreview.diff >= 0 ? 'success' : 'warning'}`}>
                                     <span className="smart-alert-icon">{liquidityPreview.diff >= 0 ? '📈' : '📉'}</span>
@@ -311,9 +348,17 @@ export default function EfectivoPage() {
                                     onChange={(e) => setForm({ ...form, notes: e.target.value })}
                                 />
                             </div>
-                            <button type="submit" className="btn btn-primary" disabled={saving}>
-                                {saving ? 'Guardando...' : 'Guardar snapshot'}
-                            </button>
+
+                            <div style={{ display: 'flex', gap: '1rem' }}>
+                                <button type="submit" className="btn btn-primary" disabled={saving}>
+                                    {saving ? 'Guardando...' : editingId ? 'Actualizar snapshot' : 'Guardar snapshot'}
+                                </button>
+                                {editingId && (
+                                    <button type="button" className="btn btn-outline" onClick={cancelEdit}>
+                                        Cancelar
+                                    </button>
+                                )}
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -325,7 +370,7 @@ export default function EfectivoPage() {
                         {snapshots.length === 0 ? (
                             <div className="empty-state"><p>No hay snapshots registrados</p></div>
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '400px', overflowY: 'auto' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '500px', overflowY: 'auto' }}>
                                 {snapshots.slice(0, 20).map((s, idx) => {
                                     const trend = getSnapshotTrend(s, idx);
                                     return (
@@ -333,8 +378,9 @@ export default function EfectivoPage() {
                                             key={s.id}
                                             style={{
                                                 padding: '0.75rem',
-                                                background: 'var(--bg-tertiary)',
+                                                background: editingId === s.id ? 'var(--bg-secondary)' : 'var(--bg-tertiary)',
                                                 borderRadius: 'var(--border-radius-sm)',
+                                                border: editingId === s.id ? '1px solid var(--primary-color)' : '',
                                             }}
                                         >
                                             <div className="flex-between" style={{ marginBottom: '0.25rem' }}>
@@ -356,13 +402,23 @@ export default function EfectivoPage() {
                                             {s.notes && (
                                                 <div className="text-muted text-sm mt-sm">{s.notes}</div>
                                             )}
-                                            <button
-                                                className="btn btn-icon text-sm"
-                                                onClick={() => handleDelete(s.id)}
-                                                style={{ marginTop: '0.5rem', padding: '4px 8px' }}
-                                            >
-                                                🗑️ Eliminar
-                                            </button>
+
+                                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                                                <button
+                                                    className="btn btn-icon btn-secondary text-sm"
+                                                    onClick={() => handleEdit(s)}
+                                                    style={{ padding: '4px 8px', flex: 1 }}
+                                                >
+                                                    ✏️ Editar
+                                                </button>
+                                                <button
+                                                    className="btn btn-icon btn-danger text-sm"
+                                                    onClick={() => handleDelete(s.id)}
+                                                    style={{ padding: '4px 8px' }}
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
                                         </div>
                                     );
                                 })}

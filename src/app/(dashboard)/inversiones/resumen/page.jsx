@@ -6,6 +6,7 @@ import {
     LineChart, Line, Legend, PieChart, Pie, Cell
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
+import CustomTooltip from '@/components/charts/CustomTooltip';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
@@ -209,7 +210,7 @@ export default function InversionesResumenPage() {
                 </div>
             </div>
 
-            {/* Distribution by Asset Type */}
+            {/* Charts Grid */}
             <div className="grid grid-2 gap-lg">
                 <ChartContainer
                     title="Distribución por tipo de activo"
@@ -236,15 +237,7 @@ export default function InversionesResumenPage() {
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip
-                                    formatter={(v) => formatCurrency(v)}
-                                    contentStyle={{
-                                        maxWidth: '180px',
-                                        fontSize: '12px',
-                                        background: 'var(--bg-primary)',
-                                        border: '1px solid var(--border-color)'
-                                    }}
-                                />
+                                <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                                 <Legend
                                     layout="horizontal"
                                     verticalAlign="bottom"
@@ -283,15 +276,7 @@ export default function InversionesResumenPage() {
                                 tick={{ fontSize: isMobile ? 9 : 10 }}
                                 tickFormatter={(v) => v.length > (isMobile ? 10 : 12) ? v.substring(0, isMobile ? 10 : 12) + '…' : v}
                             />
-                            <Tooltip
-                                formatter={(v) => formatCurrency(v)}
-                                contentStyle={{
-                                    maxWidth: '180px',
-                                    fontSize: '12px',
-                                    background: 'var(--bg-primary)',
-                                    border: '1px solid var(--border-color)'
-                                }}
-                            />
+                            <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                             <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} maxBarSize={30} />
                         </BarChart>
                     )}
@@ -324,15 +309,7 @@ export default function InversionesResumenPage() {
                                 tick={{ fontSize: 10 }}
                                 width={40}
                             />
-                            <Tooltip
-                                formatter={(v) => formatCurrency(v)}
-                                contentStyle={{
-                                    maxWidth: '180px',
-                                    fontSize: '12px',
-                                    background: 'var(--bg-primary)',
-                                    border: '1px solid var(--border-color)'
-                                }}
-                            />
+                            <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                             <Legend
                                 wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
                             />

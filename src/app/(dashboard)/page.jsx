@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { PieChart, Pie, Cell } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
+import CustomTooltip from '@/components/charts/CustomTooltip';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -19,7 +20,7 @@ export default function HomePage() {
     const [showIncomeModal, setShowIncomeModal] = useState(false);
     const [showExpenseModal, setShowExpenseModal] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [userName, setUserName] = useState('Alberto'); // Default fallback
+    const [userName, setUserName] = useState(''); // Initialize empty
 
     // Form states for quick entry
     const [incomeForm, setIncomeForm] = useState({
@@ -366,6 +367,7 @@ export default function HomePage() {
                                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                                     ))}
                                                 </Pie>
+                                                <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
                                             </PieChart>
                                         );
                                     }}
