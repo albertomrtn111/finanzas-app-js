@@ -8,6 +8,8 @@ import {
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
+import { renderPieLabel } from '@/lib/chartUtils';
+
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -374,12 +376,13 @@ export default function PatrimonioPage() {
                                     outerRadius={outerR}
                                     dataKey="value"
                                     labelLine={false}
+                                    label={renderPieLabel}
                                 >
                                     {distributionData.map((_, index) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
+                                <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={totalPatrimonio} />} />
                                 <Legend
                                     layout="horizontal"
                                     verticalAlign="bottom"

@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
+import { renderPieLabel } from '@/lib/chartUtils';
+
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
@@ -362,15 +364,18 @@ export default function HomePage() {
                                                     outerRadius={outerR}
                                                     dataKey="value"
                                                     paddingAngle={2}
+                                                    labelLine={false}
+                                                    label={renderPieLabel}
                                                 >
                                                     {investmentsByType.map((_, index) => (
                                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                                     ))}
                                                 </Pie>
-                                                <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
+                                                <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={currentInvestments} />} />
                                             </PieChart>
                                         );
                                     }}
+
                                 />
                                 {/* Legend */}
                                 <div className="donut-legend">

@@ -7,6 +7,8 @@ import {
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
+import { renderPieLabel } from '@/lib/chartUtils';
+
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
@@ -257,6 +259,40 @@ export default function ResumenPage() {
                         <span className="status-badge-icon"></span>
                         {financialStatus.label}
                     </div>
+                    <div className="view-toggle" style={{ display: 'flex', background: 'var(--bg-secondary)', padding: '4px', borderRadius: '8px', marginRight: '8px' }}>
+                        <button
+                            onClick={() => {
+                                if (selectedMonth === -1) setSelectedMonth(new Date().getMonth());
+                            }}
+                            style={{
+                                padding: '4px 12px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: selectedMonth !== -1 ? 'var(--primary)' : 'transparent',
+                                color: selectedMonth !== -1 ? 'white' : 'var(--text-secondary)',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            Este mes
+                        </button>
+                        <button
+                            onClick={() => setSelectedMonth(-1)}
+                            style={{
+                                padding: '4px 12px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: selectedMonth === -1 ? 'var(--primary)' : 'transparent',
+                                color: selectedMonth === -1 ? 'white' : 'var(--text-secondary)',
+                                fontSize: '0.85rem',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                            }}
+                        >
+                            Año completo
+                        </button>
+                    </div>
                     <select
                         className="form-input form-select"
                         value={selectedYear}
@@ -266,16 +302,23 @@ export default function ResumenPage() {
                             <option key={y} value={y}>{y}</option>
                         ))}
                     </select>
-                    <select
-                        className="form-input form-select"
-                        value={selectedMonth}
-                        onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                    >
-                        <option value={-1}>Todo el año</option>
-                        {monthNames.map((name, idx) => (
-                            <option key={idx} value={idx}>{name}</option>
-                        ))}
-                    </select>
+                    {/* Hide month selector in Year view for cleaner UI, or keep enabled to allow pre-selection for when switching back? 
+                        User asked for "Este mes" vs "Año completo". 
+                        If in Year View, picking a month is ambiguous. Let's disable or hide it. 
+                        Let's render it conditionally or just disable it. 
+                    */}
+                    {selectedMonth !== -1 && (
+                        <select
+                            className="form-input form-select"
+                            value={selectedMonth}
+                            onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                        >
+                            {/* Removed 'Todo el año' option since we have the toggle now */}
+                            {monthNames.map((name, idx) => (
+                                <option key={idx} value={idx}>{name}</option>
+                            ))}
+                        </select>
+                    )}
                 </div>
             </div>
 
@@ -406,7 +449,7 @@ export default function ResumenPage() {
                     title="Evolución mensual del ahorro"
                     heightMobile={280}
                     heightDesktop={260}
-                    refreshKey={monthlyData.length}
+                    refreshKey={`${monthlyData.length}-${isYearView ? 'year' : 'month'}-${selectedYear}`}
                     render={({ width, height, isMobile }) => (
                         <BarChart
                             width={width}
@@ -455,7 +498,7 @@ export default function ResumenPage() {
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
-                        refreshKey={categoryData.length}
+                        refreshKey={`${categoryData.length}-${selectedMonth}`}
                         render={({ width, height }) => {
                             const size = Math.min(width, height);
                             const outerR = size * 0.28;
@@ -470,12 +513,13 @@ export default function ResumenPage() {
                                         outerRadius={outerR}
                                         dataKey="value"
                                         labelLine={false}
+                                        label={renderPieLabel}
                                     >
                                         {categoryData.map((_, index) => (
                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
+                                    <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={displayedExpenses} />} />
                                     <Legend
                                         layout="horizontal"
                                         verticalAlign="bottom"
@@ -495,7 +539,7 @@ export default function ResumenPage() {
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
-                        refreshKey={typeDataTotal}
+                        refreshKey={`${typeDataTotal}-${selectedMonth}`}
                         render={({ width, height }) => {
                             const size = Math.min(width, height);
                             const outerR = size * 0.28;
@@ -510,11 +554,12 @@ export default function ResumenPage() {
                                         outerRadius={outerR}
                                         dataKey="value"
                                         labelLine={false}
+                                        label={renderPieLabel}
                                     >
                                         <Cell fill="#3B82F6" />
                                         <Cell fill="#10B981" />
                                     </Pie>
-                                    <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
+                                    <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={typeDataTotal} />} />
                                     <Legend
                                         layout="horizontal"
                                         verticalAlign="bottom"

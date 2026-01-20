@@ -7,6 +7,8 @@ import {
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
+import { renderPieLabel } from '@/lib/chartUtils';
+
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
@@ -232,12 +234,13 @@ export default function InversionesResumenPage() {
                                     outerRadius={outerR}
                                     dataKey="value"
                                     labelLine={false}
+                                    label={renderPieLabel}
                                 >
                                     {assetTypeData.map((_, index) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
+                                <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={totalValor} />} />
                                 <Legend
                                     layout="horizontal"
                                     verticalAlign="bottom"
