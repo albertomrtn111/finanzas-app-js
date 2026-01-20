@@ -11,9 +11,10 @@ export default function RegistroPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
+    const [editingId, setEditingId] = useState(null);
 
-    // Form states para gastos
-    const [expenseForm, setExpenseForm] = useState({
+    // Initial states for resetting
+    const initialExpenseForm = {
         date: new Date().toISOString().split('T')[0],
         amount: '',
         category: '',
@@ -21,16 +22,19 @@ export default function RegistroPage() {
         payment_method: 'Tarjeta',
         expense_type: 'Variable',
         notes: '',
-    });
+    };
 
-    // Form states para ingresos
-    const [incomeForm, setIncomeForm] = useState({
+    const initialIncomeForm = {
         date: new Date().toISOString().split('T')[0],
         amount: '',
         source: '',
         category: '',
         notes: '',
-    });
+    };
+
+    // Form states
+    const [expenseForm, setExpenseForm] = useState(initialExpenseForm);
+    const [incomeForm, setIncomeForm] = useState(initialIncomeForm);
 
     useEffect(() => {
         loadData();
@@ -51,12 +55,12 @@ export default function RegistroPage() {
             if (expCatRes.ok) {
                 const cats = await expCatRes.json();
                 setExpenseCategories(cats);
-                if (cats.length > 0) setExpenseForm(f => ({ ...f, category: cats[0].name }));
+                if (cats.length > 0 && !expenseForm.category) setExpenseForm(f => ({ ...f, category: cats[0].name }));
             }
             if (incCatRes.ok) {
                 const cats = await incCatRes.json();
                 setIncomeCategories(cats);
-                if (cats.length > 0) setIncomeForm(f => ({ ...f, category: cats[0].name }));
+                if (cats.length > 0 && !incomeForm.category) setIncomeForm(f => ({ ...f, category: cats[0].name }));
             }
         } catch (error) {
             console.error('Error cargando datos:', error);
@@ -69,6 +73,46 @@ export default function RegistroPage() {
         setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     };
 
+    const cancelEdit = () => {
+        setEditingId(null);
+        setExpenseForm({
+            ...initialExpenseForm,
+            category: expenseCategories.length > 0 ? expenseCategories[0].name : ''
+        });
+        setIncomeForm({
+            ...initialIncomeForm,
+            category: incomeCategories.length > 0 ? incomeCategories[0].name : ''
+        });
+    };
+
+    const handleEditExpense = (exp) => {
+        setMode('gastos');
+        setEditingId(exp.id);
+        setExpenseForm({
+            date: exp.date.split('T')[0],
+            amount: exp.amount,
+            category: exp.category,
+            subcategory: exp.subcategory || '',
+            payment_method: exp.payment_method,
+            expense_type: exp.expense_type || 'Variable',
+            notes: exp.notes || '',
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleEditIncome = (inc) => {
+        setMode('ingresos');
+        setEditingId(inc.id);
+        setIncomeForm({
+            date: inc.date.split('T')[0],
+            amount: inc.amount,
+            source: inc.source || '',
+            category: inc.category,
+            notes: inc.notes || '',
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
     const handleSubmitExpense = async (e) => {
         e.preventDefault();
         if (!expenseForm.amount || parseFloat(expenseForm.amount) <= 0) {
@@ -78,23 +122,21 @@ export default function RegistroPage() {
 
         setSaving(true);
         try {
+            const method = editingId ? 'PUT' : 'POST';
+            const body = editingId ? { ...expenseForm, id: editingId } : expenseForm;
+
             const res = await fetch('/api/expenses', {
-                method: 'POST',
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(expenseForm),
+                body: JSON.stringify(body),
             });
 
             if (res.ok) {
-                showMessage('success', 'Gasto guardado correctamente');
-                setExpenseForm({
-                    ...expenseForm,
-                    amount: '',
-                    subcategory: '',
-                    notes: '',
-                });
+                showMessage('success', `Gasto ${editingId ? 'actualizado' : 'guardado'} correctamente`);
+                cancelEdit();
                 loadData();
             } else {
-                showMessage('error', 'Error al guardar el gasto');
+                showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'} el gasto`);
             }
         } catch (error) {
             showMessage('error', 'Error de conexión');
@@ -111,23 +153,21 @@ export default function RegistroPage() {
 
         setSaving(true);
         try {
+            const method = editingId ? 'PUT' : 'POST';
+            const body = editingId ? { ...incomeForm, id: editingId } : incomeForm;
+
             const res = await fetch('/api/income', {
-                method: 'POST',
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(incomeForm),
+                body: JSON.stringify(body),
             });
 
             if (res.ok) {
-                showMessage('success', 'Ingreso guardado correctamente');
-                setIncomeForm({
-                    ...incomeForm,
-                    amount: '',
-                    source: '',
-                    notes: '',
-                });
+                showMessage('success', `Ingreso ${editingId ? 'actualizado' : 'guardado'} correctamente`);
+                cancelEdit();
                 loadData();
             } else {
-                showMessage('error', 'Error al guardar el ingreso');
+                showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'} el ingreso`);
             }
         } catch (error) {
             showMessage('error', 'Error de conexión');
@@ -141,6 +181,7 @@ export default function RegistroPage() {
             const res = await fetch(`/api/expenses?id=${id}`, { method: 'DELETE' });
             if (res.ok) {
                 showMessage('success', 'Gasto eliminado');
+                if (editingId === id) cancelEdit();
                 loadData();
             }
         } catch (error) {
@@ -154,6 +195,7 @@ export default function RegistroPage() {
             const res = await fetch(`/api/income?id=${id}`, { method: 'DELETE' });
             if (res.ok) {
                 showMessage('success', 'Ingreso eliminado');
+                if (editingId === id) cancelEdit();
                 loadData();
             }
         } catch (error) {
@@ -178,10 +220,10 @@ export default function RegistroPage() {
     }
 
     return (
-        <div>
+        <div className="page-container">
             <div className="page-header">
                 <h1 className="page-title">Registro de movimientos</h1>
-                <p className="page-subtitle">Registra tus gastos e ingresos</p>
+                <p className="page-subtitle">Registra y edita tus gastos e ingresos</p>
             </div>
 
             {message.text && (
@@ -194,13 +236,13 @@ export default function RegistroPage() {
             <div className="tabs">
                 <button
                     className={`tab ${mode === 'gastos' ? 'active' : ''}`}
-                    onClick={() => setMode('gastos')}
+                    onClick={() => { setMode('gastos'); cancelEdit(); }}
                 >
                     Gastos
                 </button>
                 <button
                     className={`tab ${mode === 'ingresos' ? 'active' : ''}`}
-                    onClick={() => setMode('ingresos')}
+                    onClick={() => { setMode('ingresos'); cancelEdit(); }}
                 >
                     Ingresos
                 </button>
@@ -210,8 +252,13 @@ export default function RegistroPage() {
             {mode === 'gastos' && (
                 <>
                     <div className="card mb-lg">
-                        <div className="card-header">
-                            <h3>Nuevo gasto</h3>
+                        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3>{editingId ? 'Editar gasto' : 'Nuevo gasto'}</h3>
+                            {editingId && (
+                                <button className="btn btn-sm btn-outline" onClick={cancelEdit}>
+                                    Cancelar edición
+                                </button>
+                            )}
                         </div>
                         <div className="card-body">
                             {expenseCategories.length === 0 ? (
@@ -299,9 +346,16 @@ export default function RegistroPage() {
                                             onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
                                         />
                                     </div>
-                                    <button type="submit" className="btn btn-primary" disabled={saving}>
-                                        {saving ? 'Guardando...' : 'Guardar gasto'}
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '1rem' }}>
+                                        <button type="submit" className="btn btn-primary" disabled={saving}>
+                                            {saving ? 'Guardando...' : editingId ? 'Actualizar gasto' : 'Guardar gasto'}
+                                        </button>
+                                        {editingId && (
+                                            <button type="button" className="btn btn-outline" onClick={cancelEdit}>
+                                                Cancelar
+                                            </button>
+                                        )}
+                                    </div>
                                 </form>
                             )}
                         </div>
@@ -328,12 +382,12 @@ export default function RegistroPage() {
                                                 <th>Subcategoría</th>
                                                 <th>Método</th>
                                                 <th>Tipo</th>
-                                                <th></th>
+                                                <th>Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {expenses.slice(0, 20).map((exp) => (
-                                                <tr key={exp.id}>
+                                                <tr key={exp.id} className={editingId === exp.id ? 'bg-highlight' : ''}>
                                                     <td>{formatDate(exp.date)}</td>
                                                     <td className="font-semibold">{formatCurrency(exp.amount)}</td>
                                                     <td><span className="badge badge-primary">{exp.category}</span></td>
@@ -341,13 +395,22 @@ export default function RegistroPage() {
                                                     <td className="text-sm">{exp.payment_method}</td>
                                                     <td className="text-sm">{exp.expense_type}</td>
                                                     <td>
-                                                        <button
-                                                            className="btn btn-icon btn-danger"
-                                                            onClick={() => handleDeleteExpense(exp.id)}
-                                                            title="Eliminar"
-                                                        >
-                                                            🗑️
-                                                        </button>
+                                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                            <button
+                                                                className="btn btn-icon btn-secondary"
+                                                                onClick={() => handleEditExpense(exp)}
+                                                                title="Editar"
+                                                            >
+                                                                ✏️
+                                                            </button>
+                                                            <button
+                                                                className="btn btn-icon btn-danger"
+                                                                onClick={() => handleDeleteExpense(exp.id)}
+                                                                title="Eliminar"
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -364,8 +427,13 @@ export default function RegistroPage() {
             {mode === 'ingresos' && (
                 <>
                     <div className="card mb-lg">
-                        <div className="card-header">
-                            <h3>Nuevo ingreso</h3>
+                        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3>{editingId ? 'Editar ingreso' : 'Nuevo ingreso'}</h3>
+                            {editingId && (
+                                <button className="btn btn-sm btn-outline" onClick={cancelEdit}>
+                                    Cancelar edición
+                                </button>
+                            )}
                         </div>
                         <div className="card-body">
                             {incomeCategories.length === 0 ? (
@@ -428,9 +496,16 @@ export default function RegistroPage() {
                                             onChange={(e) => setIncomeForm({ ...incomeForm, notes: e.target.value })}
                                         />
                                     </div>
-                                    <button type="submit" className="btn btn-success" disabled={saving}>
-                                        {saving ? 'Guardando...' : 'Guardar ingreso'}
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '1rem' }}>
+                                        <button type="submit" className="btn btn-success" disabled={saving}>
+                                            {saving ? 'Guardando...' : editingId ? 'Actualizar ingreso' : 'Guardar ingreso'}
+                                        </button>
+                                        {editingId && (
+                                            <button type="button" className="btn btn-outline" onClick={cancelEdit}>
+                                                Cancelar
+                                            </button>
+                                        )}
+                                    </div>
                                 </form>
                             )}
                         </div>
@@ -456,25 +531,34 @@ export default function RegistroPage() {
                                                 <th>Fuente</th>
                                                 <th>Categoría</th>
                                                 <th>Notas</th>
-                                                <th></th>
+                                                <th>Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {incomes.slice(0, 20).map((inc) => (
-                                                <tr key={inc.id}>
+                                                <tr key={inc.id} className={editingId === inc.id ? 'bg-highlight' : ''}>
                                                     <td>{formatDate(inc.date)}</td>
                                                     <td className="font-semibold text-success">{formatCurrency(inc.amount)}</td>
                                                     <td>{inc.source || '-'}</td>
                                                     <td><span className="badge badge-success">{inc.category}</span></td>
                                                     <td className="text-muted text-sm">{inc.notes || '-'}</td>
                                                     <td>
-                                                        <button
-                                                            className="btn btn-icon btn-danger"
-                                                            onClick={() => handleDeleteIncome(inc.id)}
-                                                            title="Eliminar"
-                                                        >
-                                                            🗑️
-                                                        </button>
+                                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                            <button
+                                                                className="btn btn-icon btn-secondary"
+                                                                onClick={() => handleEditIncome(inc)}
+                                                                title="Editar"
+                                                            >
+                                                                ✏️
+                                                            </button>
+                                                            <button
+                                                                className="btn btn-icon btn-danger"
+                                                                onClick={() => handleDeleteIncome(inc.id)}
+                                                                title="Eliminar"
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}

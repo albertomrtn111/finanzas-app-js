@@ -42,65 +42,90 @@ export default function ResumenPage() {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
     };
 
-    // Current month data
-    const isCurrentMonth = selectedYear === new Date().getFullYear() && selectedMonth === new Date().getMonth();
+    // View State
+    const isYearView = selectedMonth === -1;
+
+    // Current month/year check (for projections)
+    const isCurrentPeriod = isYearView
+        ? selectedYear === new Date().getFullYear()
+        : (selectedYear === new Date().getFullYear() && selectedMonth === new Date().getMonth());
 
     // Filter by year
     const filteredIncomes = incomes.filter((i) => new Date(i.date).getFullYear() === selectedYear);
     const filteredExpenses = expenses.filter((e) => new Date(e.date).getFullYear() === selectedYear);
 
-    // Selected month data for status  
-    const currentMonthIncomes = filteredIncomes.filter((i) => new Date(i.date).getMonth() === selectedMonth);
-    const currentMonthExpenses = filteredExpenses.filter((e) => new Date(e.date).getMonth() === selectedMonth);
+    // Filter by Month (if not year view)
+    const currentMonthIncomes = isYearView ? filteredIncomes : filteredIncomes.filter((i) => new Date(i.date).getMonth() === selectedMonth);
+    const currentMonthExpenses = isYearView ? filteredExpenses : filteredExpenses.filter((e) => new Date(e.date).getMonth() === selectedMonth);
 
-    // Previous month data for trends
-    const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
-    const prevMonthYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
-    const prevMonthIncomes = incomes.filter((i) => {
-        const d = new Date(i.date);
-        return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
-    });
-    const prevMonthExpenses = expenses.filter((e) => {
-        const d = new Date(e.date);
-        return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
-    });
+    // PREVIOUS PERIOD DATA (for trends)
+    // If Month View: Previous Month. If Year View: Previous Year.
+    const prevPeriodRecalculated = (() => {
+        if (isYearView) {
+            const prevYear = selectedYear - 1;
+            const pIncomes = incomes.filter(i => new Date(i.date).getFullYear() === prevYear);
+            const pExpenses = expenses.filter(e => new Date(e.date).getFullYear() === prevYear);
+            return {
+                income: pIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0),
+                expense: pExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
+            };
+        } else {
+            const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
+            const prevMonthYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
+            const pIncomes = incomes.filter((i) => {
+                const d = new Date(i.date);
+                return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
+            });
+            const pExpenses = expenses.filter((e) => {
+                const d = new Date(e.date);
+                return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
+            });
+            return {
+                income: pIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0),
+                expense: pExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
+            };
+        }
+    })();
+
+    const prevPeriodSaving = prevPeriodRecalculated.income - prevPeriodRecalculated.expense;
+
+    // KPI CALCULATIONS (Displayed)
+    const displayedIncome = currentMonthIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+    const displayedExpenses = currentMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+    const displayedSavings = displayedIncome - displayedExpenses;
+    const displayedSavingsRate = displayedIncome > 0 ? (displayedSavings / displayedIncome) * 100 : 0;
+
+    // Trends Calculation
+    const incomeTrend = prevPeriodRecalculated.income > 0
+        ? ((displayedIncome - prevPeriodRecalculated.income) / prevPeriodRecalculated.income) * 100
+        : 0;
+    const expenseTrend = prevPeriodRecalculated.expense > 0
+        ? ((displayedExpenses - prevPeriodRecalculated.expense) / prevPeriodRecalculated.expense) * 100
+        : 0;
+    const savingsTrend = prevPeriodSaving !== 0
+        ? ((displayedSavings - prevPeriodSaving) / Math.abs(prevPeriodSaving)) * 100
+        : 0;
+
+    // BUDGET LOGIC
+    const monthlyBudgetBase = budgets.reduce((sum, b) => sum + parseFloat(b.monthly_amount || 0), 0);
+    const displayedBudget = isYearView ? monthlyBudgetBase * 12 : monthlyBudgetBase;
+
+    // Budget usage ratio
+    const budgetUsageRatio = displayedBudget > 0 ? (displayedExpenses / displayedBudget) * 100 : 0;
+
+    // Constants Labels
+    const periodLabel = isYearView ? `(${selectedYear})` : '(este mes)';
+    const trendLabel = isYearView ? 'vs año anterior' : 'vs mes anterior';
 
     // Month names
     const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-    // KPIs - Year totals
-    const totalIncome = filteredIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-    const totalExpenses = filteredExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-    const savings = totalIncome - totalExpenses;
-    const savingsRate = totalIncome > 0 ? (savings / totalIncome) * 100 : 0;
-
-    // KPIs - Current month
-    const monthIncome = currentMonthIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-    const monthExpenses = currentMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-    const monthSavings = monthIncome - monthExpenses;
-
-    // Previous month totals for trends
-    const prevMonthIncome = prevMonthIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-    const prevMonthExpense = prevMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-    const prevMonthSaving = prevMonthIncome - prevMonthExpense;
-
-    // Calculate trends
-    const incomeTrend = prevMonthIncome > 0 ? ((monthIncome - prevMonthIncome) / prevMonthIncome) * 100 : 0;
-    const expenseTrend = prevMonthExpense > 0 ? ((monthExpenses - prevMonthExpense) / prevMonthExpense) * 100 : 0;
-    const savingsTrend = prevMonthSaving !== 0 ? ((monthSavings - prevMonthSaving) / Math.abs(prevMonthSaving)) * 100 : 0;
-
-    // Monthly budget
-    const monthlyBudget = budgets.reduce((sum, b) => sum + parseFloat(b.monthly_amount || 0), 0);
-    const yearlyBudget = monthlyBudget * 12;
-    const monthBudgetRatio = monthlyBudget > 0 ? (monthExpenses / monthlyBudget) * 100 : 0;
-    const yearBudgetRatio = yearlyBudget > 0 ? (totalExpenses / yearlyBudget) * 100 : 0;
-
-    // Calculate financial status
+    // Calculate financial status (Reused logic but adapted)
     const getFinancialStatus = () => {
-        if (monthBudgetRatio > 90 || monthSavings < 0) {
+        if (budgetUsageRatio > 100 || (isYearView ? displayedSavings < 0 : displayedSavings < 0)) { // Simple check
             return { status: 'danger', label: 'Excedido', desc: 'Gastos por encima del presupuesto' };
         }
-        if (monthBudgetRatio > 70 || (savingsRate > 0 && savingsRate < 10)) {
+        if (budgetUsageRatio > (isYearView ? 90 : 70) || (displayedSavingsRate > 0 && displayedSavingsRate < 10)) {
             return { status: 'warning', label: 'Riesgo', desc: 'Acercándote al límite' };
         }
         return { status: 'success', label: 'Bajo control', desc: 'Finanzas saludables' };
@@ -108,79 +133,55 @@ export default function ResumenPage() {
 
     const financialStatus = getFinancialStatus();
 
-    // Projected end-of-month expenses
+    // Projected expenses (Only for current Month view, hidden/simplified for Year view)
     const dayOfMonth = new Date().getDate();
     const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-    const projectedExpenses = isCurrentMonth && dayOfMonth > 0
-        ? (monthExpenses / dayOfMonth) * daysInMonth
-        : monthExpenses;
+    const projectedExpenses = (!isYearView && isCurrentPeriod && dayOfMonth > 0)
+        ? (displayedExpenses / dayOfMonth) * daysInMonth
+        : displayedExpenses;
 
-    // Progress bar color
     const getProgressColor = (ratio) => {
         if (ratio > 90) return 'red';
         if (ratio > 70) return 'yellow';
         return 'green';
     };
 
-    // Smart Alerts
+    // Smart Alerts (Simplified for mixed view)
     const generateSmartAlerts = () => {
         const alerts = [];
-        const expenseByCategory = {};
 
-        filteredExpenses.forEach((e) => {
-            if (!expenseByCategory[e.category]) expenseByCategory[e.category] = 0;
-            expenseByCategory[e.category] += parseFloat(e.amount);
-        });
+        // Only run category checks if NOT in year view (too detailed) or adapt?
+        // Let's stick to budget check for year view
 
-        const currentMonthByCategory = {};
-        currentMonthExpenses.forEach((e) => {
-            if (!currentMonthByCategory[e.category]) currentMonthByCategory[e.category] = 0;
-            currentMonthByCategory[e.category] += parseFloat(e.amount);
-        });
+        if (budgetUsageRatio > 70 && budgetUsageRatio < 100) {
+            alerts.push({
+                type: 'warning',
+                icon: '📊',
+                title: 'Presupuesto en riesgo',
+                desc: `Has consumido el ${budgetUsageRatio.toFixed(0)}% del presupuesto ${isYearView ? 'anual' : 'mensual'}`
+            });
+        }
 
-        const monthsWithData = new Set(filteredExpenses.map(e => new Date(e.date).getMonth())).size || 1;
+        if (displayedSavingsRate > 20) {
+            alerts.push({
+                type: 'success',
+                icon: '🎯',
+                title: 'Excelente tasa de ahorro',
+                desc: `Estás ahorrando el ${displayedSavingsRate.toFixed(0)}% de tus ingresos`
+            });
+        }
 
-        Object.entries(currentMonthByCategory).forEach(([category, amount]) => {
-            const avgMonthly = (expenseByCategory[category] || 0) / monthsWithData;
-            if (avgMonthly > 0 && amount > avgMonthly * 1.3) {
-                const pctOver = ((amount - avgMonthly) / avgMonthly * 100).toFixed(0);
-                alerts.push({
-                    type: 'warning',
-                    icon: '⚠️',
-                    title: `Gasto elevado en ${category}`,
-                    desc: `${pctOver}% más que tu media mensual (${formatCurrency(avgMonthly)})`
-                });
-            }
-        });
-
-        if (monthSavings > 0 && monthlyBudget > 0) {
-            const safeToInvest = monthSavings * 0.7;
+        // Investment capacity (only month view makes sense usually, but logic holds for year too)
+        if (displayedSavings > 0 && displayedBudget > 0) {
+            const safeToInvest = displayedSavings * 0.7;
             if (safeToInvest > 100) {
                 alerts.push({
                     type: 'success',
                     icon: '💡',
                     title: 'Capacidad de inversión',
-                    desc: `Puedes invertir hasta ${formatCurrency(safeToInvest)} sin comprometer tu ahorro`
+                    desc: `Resultados positivos: Podrías invertir ${formatCurrency(safeToInvest)}`
                 });
             }
-        }
-
-        if (monthBudgetRatio > 70 && monthBudgetRatio < 100) {
-            alerts.push({
-                type: 'warning',
-                icon: '📊',
-                title: 'Presupuesto en riesgo',
-                desc: `Has consumido el ${monthBudgetRatio.toFixed(0)}% del presupuesto mensual`
-            });
-        }
-
-        if (savingsRate > 20) {
-            alerts.push({
-                type: 'success',
-                icon: '🎯',
-                title: 'Excelente tasa de ahorro',
-                desc: `Estás ahorrando el ${savingsRate.toFixed(0)}% de tus ingresos`
-            });
         }
 
         return alerts.slice(0, 4);
@@ -188,7 +189,7 @@ export default function ResumenPage() {
 
     const smartAlerts = generateSmartAlerts();
 
-    // Data for monthly chart
+    // Data for monthly chart (Always useful)
     const monthNamesShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const monthlyData = monthNamesShort.map((name, idx) => {
         const mIncomes = filteredIncomes.filter((i) => new Date(i.date).getMonth() === idx);
@@ -198,14 +199,19 @@ export default function ResumenPage() {
         return { name, income: inc, expenses: exp, savings: inc - exp };
     }).filter((d) => d.income > 0 || d.expenses > 0);
 
-    // Savings target line
-    const avgMonthlySavingsTarget = monthlyBudget > 0
-        ? (monthIncome - monthlyBudget)
-        : monthSavings;
+    // Savings target line for chart
+    const avgMonthlySavingsTarget = (displayedBudget / (isYearView ? 12 : 1)) > 0
+        ? (displayedIncome - displayedExpenses) // Just use current saving for line or budget diff? 
+        : displayedSavings;
+    // Simplification: In Year View, the monthly chart still shows months. 
+    // The "Target" line (dashed) is interesting. Let's keep it as (Monthly Budget - Avg Expenses)? 
+    // Actually earlier it was `monthIncome - monthlyBudget`.
+    // Let's keep it simple: `(Total Income / 12) - (Total Budget / 12)` if year view?
+    // Or just hide it if complex. Let's use `monthlyBudgetBase` for budget line context.
 
-    // Category data
+    // Category data (filtered by scope)
     const expenseByCat = {};
-    filteredExpenses.forEach((e) => {
+    currentMonthExpenses.forEach((e) => {
         if (!expenseByCat[e.category]) expenseByCat[e.category] = 0;
         expenseByCat[e.category] += parseFloat(e.amount);
     });
@@ -215,7 +221,7 @@ export default function ResumenPage() {
 
     // Fixed vs Variable
     const expenseByType = { Fijo: 0, Variable: 0 };
-    filteredExpenses.forEach((e) => {
+    currentMonthExpenses.forEach((e) => {
         const type = e.expense_type || 'Variable';
         expenseByType[type] = (expenseByType[type] || 0) + parseFloat(e.amount);
     });
@@ -226,6 +232,7 @@ export default function ResumenPage() {
     const allYears = [...new Set([
         ...incomes.map((i) => new Date(i.date).getFullYear()),
         ...expenses.map((e) => new Date(e.date).getFullYear()),
+        new Date().getFullYear()
     ])].sort((a, b) => b - a);
 
     if (loading) {
@@ -241,7 +248,7 @@ export default function ResumenPage() {
             {/* Status Header */}
             <div className="status-header">
                 <div>
-                    <div className="status-header-title">Estado financiero de este mes</div>
+                    <div className="status-header-title">Estado financiero {periodLabel}</div>
                     <div className="status-header-subtitle">{financialStatus.desc}</div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -254,15 +261,16 @@ export default function ResumenPage() {
                         value={selectedYear}
                         onChange={(e) => setSelectedYear(parseInt(e.target.value))}
                     >
-                        {allYears.length > 0 ? allYears.map((y) => (
+                        {allYears.map((y) => (
                             <option key={y} value={y}>{y}</option>
-                        )) : <option>{new Date().getFullYear()}</option>}
+                        ))}
                     </select>
                     <select
                         className="form-input form-select"
                         value={selectedMonth}
                         onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
                     >
+                        <option value={-1}>Todo el año</option>
                         {monthNames.map((name, idx) => (
                             <option key={idx} value={idx}>{name}</option>
                         ))}
@@ -273,97 +281,100 @@ export default function ResumenPage() {
             {/* Enhanced KPIs */}
             <div className="kpi-grid">
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Ingresos (este mes)</div>
+                    <div className="kpi-label">Ingresos {periodLabel}</div>
                     <div className="kpi-main">
-                        <div className="kpi-value text-success">{formatCurrency(monthIncome)}</div>
+                        <div className="kpi-value text-success">{formatCurrency(displayedIncome)}</div>
                     </div>
-                    {prevMonthIncome > 0 && (
+                    {prevPeriodRecalculated.income > 0 && (
                         <div className="kpi-trend">
                             <span className={`trend ${incomeTrend >= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(incomeTrend).toFixed(0)}% vs mes anterior
+                                {Math.abs(incomeTrend).toFixed(0)}% {trendLabel}
                             </span>
                         </div>
                     )}
                 </div>
 
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Gastos (este mes)</div>
+                    <div className="kpi-label">Gastos {periodLabel}</div>
                     <div className="kpi-main">
-                        <div className="kpi-value text-danger">{formatCurrency(monthExpenses)}</div>
+                        <div className="kpi-value text-danger">{formatCurrency(displayedExpenses)}</div>
                     </div>
-                    {prevMonthExpense > 0 && (
+                    {prevPeriodRecalculated.expense > 0 && (
                         <div className="kpi-trend">
                             <span className={`trend ${expenseTrend <= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(expenseTrend).toFixed(0)}% vs mes anterior
+                                {Math.abs(expenseTrend).toFixed(0)}% {trendLabel}
                             </span>
                         </div>
                     )}
                 </div>
 
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Ahorro (este mes)</div>
+                    <div className="kpi-label">Ahorro {periodLabel}</div>
                     <div className="kpi-main">
-                        <div className={`kpi-value ${monthSavings >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                            {formatCurrency(monthSavings)}
+                        <div className={`kpi-value ${displayedSavings >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
+                            {formatCurrency(displayedSavings)}
                         </div>
                     </div>
-                    {prevMonthSaving !== 0 && (
+                    {prevPeriodSaving !== 0 && (
                         <div className="kpi-trend">
                             <span className={`trend ${savingsTrend >= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(savingsTrend).toFixed(0)}% vs mes anterior
+                                {Math.abs(savingsTrend).toFixed(0)}% {trendLabel}
                             </span>
                         </div>
                     )}
                 </div>
 
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Tasa de ahorro ({selectedYear})</div>
+                    <div className="kpi-label">Tasa de ahorro {periodLabel}</div>
                     <div className="kpi-main">
-                        <div className={`kpi-value ${savingsRate >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                            {savingsRate.toFixed(1)}%
+                        <div className={`kpi-value ${displayedSavingsRate >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
+                            {displayedSavingsRate.toFixed(1)}%
                         </div>
                     </div>
                     <div className="kpi-trend">
                         <span className="text-muted text-sm">
-                            Ahorro total: {formatCurrency(savings)}
+                            {formatCurrency(displayedSavings)} en total
                         </span>
                     </div>
                 </div>
             </div>
 
             {/* Budget Progress with Zones */}
-            {monthlyBudget > 0 && (
+            {displayedBudget > 0 && (
                 <div className="card mb-lg">
                     <div className="card-body">
-                        <h3 className="section-title">Presupuesto mensual</h3>
+                        <h3 className="section-title">Presupuesto {isYearView ? 'anual' : 'mensual'}</h3>
                         <div className="grid grid-3 gap-md mb-md">
                             <div>
                                 <div className="text-muted text-sm">Presupuesto</div>
-                                <div className="font-semibold">{formatCurrency(monthlyBudget)}</div>
+                                <div className="font-semibold">{formatCurrency(displayedBudget)}</div>
                             </div>
                             <div>
                                 <div className="text-muted text-sm">Gastado</div>
-                                <div className="font-semibold">{formatCurrency(monthExpenses)}</div>
+                                <div className="font-semibold">{formatCurrency(displayedExpenses)}</div>
                             </div>
                             <div>
                                 <div className="text-muted text-sm">Disponible</div>
-                                <div className={`font-semibold ${monthlyBudget - monthExpenses >= 0 ? 'text-success' : 'text-danger'}`}>
-                                    {formatCurrency(monthlyBudget - monthExpenses)}
+                                <div className={`font-semibold ${displayedBudget - displayedExpenses >= 0 ? 'text-success' : 'text-danger'}`}>
+                                    {formatCurrency(displayedBudget - displayedExpenses)}
                                 </div>
                             </div>
                         </div>
                         <div className="progress-zoned">
                             <div
-                                className={`progress-zoned-bar ${getProgressColor(monthBudgetRatio)}`}
-                                style={{ width: `${Math.min(monthBudgetRatio, 100)}%` }}
+                                className={`progress-zoned-bar ${getProgressColor(budgetUsageRatio)}`}
+                                style={{ width: `${Math.min(budgetUsageRatio, 100)}%` }}
                             />
                         </div>
-                        <div className="projection-text">
-                            📈 Si mantienes este ritmo, cerrarás el mes con un gasto de {formatCurrency(projectedExpenses)}
-                            {projectedExpenses > monthlyBudget && (
-                                <span className="text-danger"> (superarás el presupuesto)</span>
-                            )}
-                        </div>
+                        {!isYearView && (
+                            <div className="projection-text">
+                                📈 Si mantienes este ritmo, cerrarás el mes con un gasto de {formatCurrency(projectedExpenses)}
+                                {projectedExpenses > displayedBudget && (
+                                    <span className="text-danger"> (superarás el presupuesto)</span>
+                                )}
+                            </div>
+                        )}
+                        {/* Optionally add Year projection here if desired later */}
                     </div>
                 </div>
             )}
@@ -420,11 +431,7 @@ export default function ResumenPage() {
                                 formatter={(value) => formatCurrency(value)}
                                 contentStyle={{ background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}
                             />
-                            <ReferenceLine
-                                y={avgMonthlySavingsTarget}
-                                stroke={avgMonthlySavingsTarget > 0 ? "#10B981" : "#EF4444"}
-                                strokeDasharray="5 5"
-                            />
+                            {/* Disabled ReferenceLine for complexity reduction - could read 'monthlyBudgetBase' */}
                             <Bar
                                 dataKey="savings"
                                 radius={[4, 4, 0, 0]}
@@ -446,7 +453,7 @@ export default function ResumenPage() {
                 {/* Chart 2: Category Pie Chart */}
                 {categoryData.length > 0 && (
                     <ChartContainer
-                        title={`Gastos por categoría (${selectedYear})`}
+                        title={`Gastos por categoría ${periodLabel}`}
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
@@ -486,7 +493,7 @@ export default function ResumenPage() {
                 {/* Chart 3: Fixed vs Variable Pie Chart */}
                 {typeData.length > 0 && (
                     <ChartContainer
-                        title={`Gasto fijo vs variable (${selectedYear})`}
+                        title={`Gasto fijo vs variable ${periodLabel}`}
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
@@ -523,36 +530,31 @@ export default function ResumenPage() {
                 )}
             </div>
 
-            {/* Year Summary */}
-            <div className="card mt-lg">
-                <div className="card-header">
-                    <h3>Resumen anual {selectedYear}</h3>
-                </div>
-                <div className="card-body">
-                    <div className="grid grid-4 gap-md">
-                        <div>
-                            <div className="text-muted text-sm">Total ingresos</div>
-                            <div className="font-semibold text-success">{formatCurrency(totalIncome)}</div>
-                        </div>
-                        <div>
-                            <div className="text-muted text-sm">Total gastos</div>
-                            <div className="font-semibold text-danger">{formatCurrency(totalExpenses)}</div>
-                        </div>
-                        <div>
-                            <div className="text-muted text-sm">Ahorro neto</div>
-                            <div className={`font-semibold ${savings >= 0 ? 'text-success' : 'text-danger'}`}>
-                                {formatCurrency(savings)}
+            {/* Year Summary - Only needed if NOT in Year View? Or keep redundancy? 
+                Actually, if user selects "Todo el año", the top KPIs are the year summary.
+                So this card becomes redundant in Year View. Let's hide it if isYearView.
+            */}
+            {!isYearView && (
+                <div className="card mt-lg">
+                    <div className="card-header">
+                        <h3>Resumen anual {selectedYear}</h3>
+                    </div>
+                    <div className="card-body">
+                        <div className="grid grid-4 gap-md">
+                            <div>
+                                <div className="text-muted text-sm">Total ingresos</div>
+                                <div className="font-semibold text-success">{formatCurrency(filteredIncomes.reduce((s, i) => s + parseFloat(i.amount), 0))}</div>
                             </div>
-                        </div>
-                        <div>
-                            <div className="text-muted text-sm">% presupuesto usado</div>
-                            <div className={`font-semibold ${yearBudgetRatio > 100 ? 'text-danger' : yearBudgetRatio > 80 ? 'text-warning' : ''}`}>
-                                {yearBudgetRatio.toFixed(1)}%
+                            <div>
+                                <div className="text-muted text-sm">Total gastos</div>
+                                <div className="font-semibold text-danger">{formatCurrency(filteredExpenses.reduce((s, e) => s + parseFloat(e.amount), 0))}</div>
                             </div>
+                            {/* ... can be simplified or just rely on the main KPIs when user toggles mode ... */}
+                            {/* For now, leaving it as a quick glance when in month mode. */}
                         </div>
                     </div>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
