@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
+import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
 
 
@@ -248,72 +249,55 @@ export default function ResumenPage() {
 
     return (
         <div className="page-container">
-            {/* Status Header */}
-            <div className="status-header">
+            {/* Status Header - Responsive Refactor */}
+            <div className="responsive-header">
                 <div>
                     <div className="status-header-title">Estado financiero {periodLabel}</div>
                     <div className="status-header-subtitle">{financialStatus.desc}</div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <div className="header-controls">
                     <div className={`status-badge ${financialStatus.status}`}>
                         <span className="status-badge-icon"></span>
                         {financialStatus.label}
                     </div>
-                    <div className="view-toggle" style={{ display: 'flex', background: 'var(--bg-secondary)', padding: '4px', borderRadius: '8px', marginRight: '8px' }}>
+
+                    {/* Segmented Control for Period Toggle */}
+                    <div className="segmented-control">
                         <button
                             onClick={() => {
                                 if (selectedMonth === -1) setSelectedMonth(new Date().getMonth());
                             }}
-                            style={{
-                                padding: '4px 12px',
-                                borderRadius: '6px',
-                                border: 'none',
-                                background: selectedMonth !== -1 ? 'var(--primary)' : 'transparent',
-                                color: selectedMonth !== -1 ? 'white' : 'var(--text-secondary)',
-                                fontSize: '0.85rem',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s'
-                            }}
+                            className={`segmented-btn ${selectedMonth !== -1 ? 'active' : ''}`}
                         >
                             Este mes
                         </button>
                         <button
                             onClick={() => setSelectedMonth(-1)}
-                            style={{
-                                padding: '4px 12px',
-                                borderRadius: '6px',
-                                border: 'none',
-                                background: selectedMonth === -1 ? 'var(--primary)' : 'transparent',
-                                color: selectedMonth === -1 ? 'white' : 'var(--text-secondary)',
-                                fontSize: '0.85rem',
-                                cursor: 'pointer',
-                                transition: 'all 0.2s'
-                            }}
+                            className={`segmented-btn ${selectedMonth === -1 ? 'active' : ''}`}
                         >
-                            Año completo
+                            <span className="visible-mobile">Año</span>
+                            <span className="hidden-mobile">Año completo</span>
                         </button>
                     </div>
+
                     <select
                         className="form-input form-select"
                         value={selectedYear}
                         onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        style={{ minWidth: '100px' }}
                     >
                         {allYears.map((y) => (
                             <option key={y} value={y}>{y}</option>
                         ))}
                     </select>
-                    {/* Hide month selector in Year view for cleaner UI, or keep enabled to allow pre-selection for when switching back? 
-                        User asked for "Este mes" vs "Año completo". 
-                        If in Year View, picking a month is ambiguous. Let's disable or hide it. 
-                        Let's render it conditionally or just disable it. 
-                    */}
+
                     {selectedMonth !== -1 && (
                         <select
                             className="form-input form-select"
                             value={selectedMonth}
                             onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                            style={{ minWidth: '120px' }}
                         >
-                            {/* Removed 'Todo el año' option since we have the toggle now */}
                             {monthNames.map((name, idx) => (
                                 <option key={idx} value={idx}>{name}</option>
                             ))}
@@ -519,7 +503,7 @@ export default function ResumenPage() {
                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={displayedExpenses} />} />
+                                    <Tooltip content={<PieTooltip />} />
                                     <Legend
                                         layout="horizontal"
                                         verticalAlign="bottom"
@@ -559,7 +543,7 @@ export default function ResumenPage() {
                                         <Cell fill="#3B82F6" />
                                         <Cell fill="#10B981" />
                                     </Pie>
-                                    <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={typeDataTotal} />} />
+                                    <Tooltip content={<PieTooltip />} />
                                     <Legend
                                         layout="horizontal"
                                         verticalAlign="bottom"

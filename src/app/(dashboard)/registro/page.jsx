@@ -13,45 +13,81 @@ export default function RegistroPage() {
     const [message, setMessage] = useState({ type: '', text: '' });
     const [editingId, setEditingId] = useState(null);
 
-    // Initial states for resetting
-    const initialExpenseForm = {
-        date: new Date().toISOString().split('T')[0],
+    // Pagination state
+    const LIMIT = 50;
+    const [expensesOffset, setExpensesOffset] = useState(0);
+    const [incomesOffset, setIncomesOffset] = useState(0);
+    const [hasMoreExpenses, setHasMoreExpenses] = useState(true);
+    const [hasMoreIncomes, setHasMoreIncomes] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+
+    // Date persistence
+    const TODAY = new Date().toISOString().split('T')[0];
+    const [autoDate, setAutoDate] = useState(TODAY);
+
+    useEffect(() => {
+        const savedDate = localStorage.getItem('nextfinance_last_date');
+        if (savedDate) {
+            setAutoDate(savedDate);
+            setExpenseForm(prev => ({ ...prev, date: savedDate }));
+            setIncomeForm(prev => ({ ...prev, date: savedDate }));
+        }
+    }, []);
+
+    const updateAutoDate = (newDate) => {
+        setAutoDate(newDate);
+        localStorage.setItem('nextfinance_last_date', newDate);
+    };
+
+    // Initial states for resetting (using function to get dynamic date)
+    const getInitialExpenseForm = (date) => ({
+        date: date,
         amount: '',
         category: '',
         subcategory: '',
         payment_method: 'Tarjeta',
         expense_type: 'Variable',
         notes: '',
-    };
+    });
 
-    const initialIncomeForm = {
-        date: new Date().toISOString().split('T')[0],
+    const getInitialIncomeForm = (date) => ({
+        date: date,
         amount: '',
         source: '',
         category: '',
         notes: '',
-    };
+    });
 
     // Form states
-    const [expenseForm, setExpenseForm] = useState(initialExpenseForm);
-    const [incomeForm, setIncomeForm] = useState(initialIncomeForm);
+    const [expenseForm, setExpenseForm] = useState(getInitialExpenseForm(TODAY));
+    const [incomeForm, setIncomeForm] = useState(getInitialIncomeForm(TODAY));
 
     useEffect(() => {
-        loadData();
+        loadInitialData();
     }, []);
 
-    const loadData = async () => {
+    const loadInitialData = async () => {
         setLoading(true);
         try {
             const [expRes, incRes, expCatRes, incCatRes] = await Promise.all([
-                fetch('/api/expenses'),
-                fetch('/api/income'),
+                fetch(`/api/expenses?limit=${LIMIT}&offset=0`),
+                fetch(`/api/income?limit=${LIMIT}&offset=0`),
                 fetch('/api/categories?type=expense'),
                 fetch('/api/categories?type=income'),
             ]);
 
-            if (expRes.ok) setExpenses(await expRes.json());
-            if (incRes.ok) setIncomes(await incRes.json());
+            if (expRes.ok) {
+                const data = await expRes.json();
+                setExpenses(Array.isArray(data) ? data : []);
+                setHasMoreExpenses(data.length === LIMIT);
+                setExpensesOffset(data.length);
+            }
+            if (incRes.ok) {
+                const data = await incRes.json();
+                setIncomes(Array.isArray(data) ? data : []);
+                setHasMoreIncomes(data.length === LIMIT);
+                setIncomesOffset(data.length);
+            }
             if (expCatRes.ok) {
                 const cats = await expCatRes.json();
                 setExpenseCategories(cats);
@@ -68,6 +104,48 @@ export default function RegistroPage() {
         setLoading(false);
     };
 
+    const loadMoreExpenses = async () => {
+        if (loadingMore || !hasMoreExpenses) return;
+        setLoadingMore(true);
+        try {
+            const res = await fetch(`/api/expenses?limit=${LIMIT}&offset=${expensesOffset}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    setExpenses(prev => [...prev, ...data]);
+                    setExpensesOffset(prev => prev + data.length);
+                    setHasMoreExpenses(data.length === LIMIT);
+                }
+            }
+        } catch (err) {
+            console.error('Error loading more expenses', err);
+        }
+        setLoadingMore(false);
+    };
+
+    const loadMoreIncomes = async () => {
+        if (loadingMore || !hasMoreIncomes) return;
+        setLoadingMore(true);
+        try {
+            const res = await fetch(`/api/income?limit=${LIMIT}&offset=${incomesOffset}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    setIncomes(prev => [...prev, ...data]);
+                    setIncomesOffset(prev => prev + data.length);
+                    setHasMoreIncomes(data.length === LIMIT);
+                }
+            }
+        } catch (err) {
+            console.error('Error loading more incomes', err);
+        }
+        setLoadingMore(false);
+    };
+
+    const reloadList = async () => {
+        loadInitialData();
+    };
+
     const showMessage = (type, text) => {
         setMessage({ type, text });
         setTimeout(() => setMessage({ type: '', text: '' }), 3000);
@@ -75,12 +153,13 @@ export default function RegistroPage() {
 
     const cancelEdit = () => {
         setEditingId(null);
+        // Reset to autoDate (last used) instead of TODAY
         setExpenseForm({
-            ...initialExpenseForm,
+            ...getInitialExpenseForm(autoDate),
             category: expenseCategories.length > 0 ? expenseCategories[0].name : ''
         });
         setIncomeForm({
-            ...initialIncomeForm,
+            ...getInitialIncomeForm(autoDate),
             category: incomeCategories.length > 0 ? incomeCategories[0].name : ''
         });
     };
@@ -133,8 +212,12 @@ export default function RegistroPage() {
 
             if (res.ok) {
                 showMessage('success', `Gasto ${editingId ? 'actualizado' : 'guardado'} correctamente`);
+
+                // Update sticky date on success
+                updateAutoDate(expenseForm.date);
+
                 cancelEdit();
-                loadData();
+                reloadList();
             } else {
                 showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'} el gasto`);
             }
@@ -164,8 +247,12 @@ export default function RegistroPage() {
 
             if (res.ok) {
                 showMessage('success', `Ingreso ${editingId ? 'actualizado' : 'guardado'} correctamente`);
+
+                // Update sticky date on success
+                updateAutoDate(incomeForm.date);
+
                 cancelEdit();
-                loadData();
+                reloadList();
             } else {
                 showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'} el ingreso`);
             }
@@ -182,7 +269,9 @@ export default function RegistroPage() {
             if (res.ok) {
                 showMessage('success', 'Gasto eliminado');
                 if (editingId === id) cancelEdit();
-                loadData();
+                // Optimistic update or reload?
+                // For simplicity, reload or remove from state. Removing from state is better UX.
+                setExpenses(prev => prev.filter(e => e.id !== id));
             }
         } catch (error) {
             showMessage('error', 'Error al eliminar');
@@ -196,7 +285,7 @@ export default function RegistroPage() {
             if (res.ok) {
                 showMessage('success', 'Ingreso eliminado');
                 if (editingId === id) cancelEdit();
-                loadData();
+                setIncomes(prev => prev.filter(i => i.id !== id));
             }
         } catch (error) {
             showMessage('error', 'Error al eliminar');
@@ -342,6 +431,7 @@ export default function RegistroPage() {
                                         <textarea
                                             className="form-input"
                                             rows="2"
+                                            placeholder="Añade un comentario (opcional)"
                                             value={expenseForm.notes}
                                             onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
                                         />
@@ -363,7 +453,7 @@ export default function RegistroPage() {
 
                     <div className="card">
                         <div className="card-header">
-                            <h3>Últimos gastos</h3>
+                            <h3>Historial de gastos</h3>
                         </div>
                         <div className="card-body">
                             {expenses.length === 0 ? (
@@ -372,51 +462,66 @@ export default function RegistroPage() {
                                     <p>No hay gastos registrados</p>
                                 </div>
                             ) : (
-                                <div className="table-container">
-                                    <table className="table">
-                                        <thead>
-                                            <tr>
-                                                <th>Fecha</th>
-                                                <th>Importe</th>
-                                                <th>Categoría</th>
-                                                <th>Subcategoría</th>
-                                                <th>Método</th>
-                                                <th>Tipo</th>
-                                                <th>Acciones</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {expenses.slice(0, 20).map((exp) => (
-                                                <tr key={exp.id} className={editingId === exp.id ? 'bg-highlight' : ''}>
-                                                    <td>{formatDate(exp.date)}</td>
-                                                    <td className="font-semibold">{formatCurrency(exp.amount)}</td>
-                                                    <td><span className="badge badge-primary">{exp.category}</span></td>
-                                                    <td className="text-muted">{exp.subcategory || '-'}</td>
-                                                    <td className="text-sm">{exp.payment_method}</td>
-                                                    <td className="text-sm">{exp.expense_type}</td>
-                                                    <td>
-                                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                            <button
-                                                                className="btn btn-icon btn-secondary"
-                                                                onClick={() => handleEditExpense(exp)}
-                                                                title="Editar"
-                                                            >
-                                                                ✏️
-                                                            </button>
-                                                            <button
-                                                                className="btn btn-icon btn-danger"
-                                                                onClick={() => handleDeleteExpense(exp.id)}
-                                                                title="Eliminar"
-                                                            >
-                                                                🗑️
-                                                            </button>
-                                                        </div>
-                                                    </td>
+                                <>
+                                    <div className="table-container">
+                                        <table className="table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Fecha</th>
+                                                    <th>Importe</th>
+                                                    <th>Categoría</th>
+                                                    <th>Subcategoría</th>
+                                                    <th>Método</th>
+                                                    <th>Notas</th>
+                                                    <th>Acciones</th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                            </thead>
+                                            <tbody>
+                                                {expenses.map((exp) => (
+                                                    <tr key={exp.id} className={editingId === exp.id ? 'bg-highlight' : ''}>
+                                                        <td>{formatDate(exp.date)}</td>
+                                                        <td className="font-semibold">{formatCurrency(exp.amount)}</td>
+                                                        <td><span className="badge badge-primary">{exp.category}</span></td>
+                                                        <td className="text-muted">{exp.subcategory || '-'}</td>
+                                                        <td className="text-sm">{exp.payment_method}</td>
+                                                        <td className="text-muted text-sm" style={{ maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                            {exp.notes || '-'}
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                                <button
+                                                                    className="btn btn-icon btn-secondary"
+                                                                    onClick={() => handleEditExpense(exp)}
+                                                                    title="Editar"
+                                                                >
+                                                                    ✏️
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-icon btn-danger"
+                                                                    onClick={() => handleDeleteExpense(exp.id)}
+                                                                    title="Eliminar"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {hasMoreExpenses && (
+                                        <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+                                            <button
+                                                className="btn btn-outline"
+                                                onClick={loadMoreExpenses}
+                                                disabled={loadingMore}
+                                            >
+                                                {loadingMore ? 'Cargando...' : 'Cargar más gastos'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>
@@ -492,6 +597,7 @@ export default function RegistroPage() {
                                         <textarea
                                             className="form-input"
                                             rows="2"
+                                            placeholder="Añade un comentario (opcional)"
                                             value={incomeForm.notes}
                                             onChange={(e) => setIncomeForm({ ...incomeForm, notes: e.target.value })}
                                         />
@@ -513,7 +619,7 @@ export default function RegistroPage() {
 
                     <div className="card">
                         <div className="card-header">
-                            <h3>Últimos ingresos</h3>
+                            <h3>Historial de ingresos</h3>
                         </div>
                         <div className="card-body">
                             {incomes.length === 0 ? (
@@ -522,49 +628,64 @@ export default function RegistroPage() {
                                     <p>No hay ingresos registrados</p>
                                 </div>
                             ) : (
-                                <div className="table-container">
-                                    <table className="table">
-                                        <thead>
-                                            <tr>
-                                                <th>Fecha</th>
-                                                <th>Importe</th>
-                                                <th>Fuente</th>
-                                                <th>Categoría</th>
-                                                <th>Notas</th>
-                                                <th>Acciones</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {incomes.slice(0, 20).map((inc) => (
-                                                <tr key={inc.id} className={editingId === inc.id ? 'bg-highlight' : ''}>
-                                                    <td>{formatDate(inc.date)}</td>
-                                                    <td className="font-semibold text-success">{formatCurrency(inc.amount)}</td>
-                                                    <td>{inc.source || '-'}</td>
-                                                    <td><span className="badge badge-success">{inc.category}</span></td>
-                                                    <td className="text-muted text-sm">{inc.notes || '-'}</td>
-                                                    <td>
-                                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                            <button
-                                                                className="btn btn-icon btn-secondary"
-                                                                onClick={() => handleEditIncome(inc)}
-                                                                title="Editar"
-                                                            >
-                                                                ✏️
-                                                            </button>
-                                                            <button
-                                                                className="btn btn-icon btn-danger"
-                                                                onClick={() => handleDeleteIncome(inc.id)}
-                                                                title="Eliminar"
-                                                            >
-                                                                🗑️
-                                                            </button>
-                                                        </div>
-                                                    </td>
+                                <>
+                                    <div className="table-container">
+                                        <table className="table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Fecha</th>
+                                                    <th>Importe</th>
+                                                    <th>Fuente</th>
+                                                    <th>Categoría</th>
+                                                    <th>Notas</th>
+                                                    <th>Acciones</th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                            </thead>
+                                            <tbody>
+                                                {incomes.map((inc) => (
+                                                    <tr key={inc.id} className={editingId === inc.id ? 'bg-highlight' : ''}>
+                                                        <td>{formatDate(inc.date)}</td>
+                                                        <td className="font-semibold text-success">{formatCurrency(inc.amount)}</td>
+                                                        <td>{inc.source || '-'}</td>
+                                                        <td><span className="badge badge-success">{inc.category}</span></td>
+                                                        <td className="text-muted text-sm" style={{ maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                            {inc.notes || '-'}
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                                                <button
+                                                                    className="btn btn-icon btn-secondary"
+                                                                    onClick={() => handleEditIncome(inc)}
+                                                                    title="Editar"
+                                                                >
+                                                                    ✏️
+                                                                </button>
+                                                                <button
+                                                                    className="btn btn-icon btn-danger"
+                                                                    onClick={() => handleDeleteIncome(inc.id)}
+                                                                    title="Eliminar"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {hasMoreIncomes && (
+                                        <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+                                            <button
+                                                className="btn btn-outline"
+                                                onClick={loadMoreIncomes}
+                                                disabled={loadingMore}
+                                            >
+                                                {loadingMore ? 'Cargando...' : 'Cargar más ingresos'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>

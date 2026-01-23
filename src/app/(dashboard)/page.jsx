@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
+import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
 
 
@@ -371,7 +372,7 @@ export default function HomePage() {
                                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                                     ))}
                                                 </Pie>
-                                                <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={currentInvestments} />} />
+                                                <Tooltip content={<PieTooltip />} />
                                             </PieChart>
                                         );
                                     }}

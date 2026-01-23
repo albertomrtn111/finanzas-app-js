@@ -12,10 +12,17 @@ export async function GET(request) {
         }
 
         const userId = parseInt(session.user.id);
+        const { searchParams } = new URL(request.url);
+
+        // Pagination params
+        const limit = parseInt(searchParams.get('limit') || '50');
+        const offset = parseInt(searchParams.get('offset') || '0');
 
         const incomes = await prisma.income.findMany({
             where: { user_id: userId },
             orderBy: [{ date: 'desc' }, { id: 'desc' }],
+            take: limit,
+            skip: offset,
         });
 
         return NextResponse.json(incomes);

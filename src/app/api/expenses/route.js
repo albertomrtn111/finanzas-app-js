@@ -12,11 +12,21 @@ export async function GET(request) {
         }
 
         const userId = parseInt(session.user.id);
+        const { searchParams } = new URL(request.url);
+
+        // Pagination params
+        const limit = parseInt(searchParams.get('limit') || '50');
+        const offset = parseInt(searchParams.get('offset') || '0');
 
         const expenses = await prisma.expense.findMany({
             where: { user_id: userId },
             orderBy: [{ date: 'desc' }, { id: 'desc' }],
+            take: limit,
+            skip: offset,
         });
+
+        // Get total count for pagination info if needed, or just return list
+        // For simplicity and speed request, just list is fine, client checks if length < limit to know if more exist.
 
         return NextResponse.json(expenses);
     } catch (error) {

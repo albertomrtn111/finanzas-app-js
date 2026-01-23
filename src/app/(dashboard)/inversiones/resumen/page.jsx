@@ -7,6 +7,7 @@ import {
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
+import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
 
 
@@ -240,7 +241,7 @@ export default function InversionesResumenPage() {
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
-                                <Tooltip content={<CustomTooltip formatter={formatCurrency} totalValue={totalValor} />} />
+                                <Tooltip content={<PieTooltip />} />
                                 <Legend
                                     layout="horizontal"
                                     verticalAlign="bottom"

@@ -2797,6 +2797,116 @@ textarea.form-input {
 /* =========================================
    EXTRA SMALL DEVICES - 400px and below
    ========================================= */
+
+/* ... existing extra small devices code if any ... */
+
+/* =========================================
+   NEW RESPONSIVE UTILITIES 
+   (Implementing requested layout fixes for Dashboard Resumen)
+   ========================================= */
+
+/* Responsive Header Container */
+.responsive-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: var(--spacing-lg);
+}
+
+@media (min-width: 640px) { /* sm breakpoint approx */
+  .responsive-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.header-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .header-controls {
+    flex-direction: row;
+    align-items: center;
+    width: auto;
+  }
+}
+
+/* Segmented Control - Toggle */
+.segmented-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  padding: 4px;
+  background: var(--bg-secondary); /* Fallback or specific color */
+  background: rgba(0, 0, 0, 0.05); /* Similar to bg-white/5 in dark, or gray-100 */
+  border-radius: var(--border-radius); 
+  border: 1px solid var(--border-color);
+}
+
+@media (prefers-color-scheme: dark) {
+  .segmented-control {
+    background: rgba(255, 255, 255, 0.05);
+  }
+}
+
+@media (min-width: 640px) {
+  .segmented-control {
+    width: 320px;
+  }
+}
+
+.segmented-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: var(--border-radius-sm);
+  border: none;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.segmented-btn.active {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  font-weight: 600;
+}
+
+/* Visibility Utilities */
+.visible-mobile {
+  display: inline;
+}
+.hidden-mobile {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .visible-mobile {
+    display: none;
+  }
+  .hidden-mobile {
+    display: inline;
+  }
+}
+
+/* Text Truncate */
+.truncate-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 @media (max-width: 400px) {
   .page-container {
     padding: 0.625rem;
