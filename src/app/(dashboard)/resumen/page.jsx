@@ -15,146 +15,91 @@ import { parseAppDate } from '@/lib/dateUtils';
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
 
 export default function ResumenPage() {
-    const [incomes, setIncomes] = useState([]);
-    const [expenses, setExpenses] = useState([]);
-    const [budgets, setBudgets] = useState([]);
+    const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(true);
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [selectedYear, selectedMonth]);
 
     const loadData = async () => {
         setLoading(true);
         try {
-            const [incRes, expRes, budRes] = await Promise.all([
-                fetch('/api/income'),
-                fetch('/api/expenses'),
-                fetch('/api/budgets'),
-            ]);
-            if (incRes.ok) setIncomes(await incRes.json());
-            if (expRes.ok) setExpenses(await expRes.json());
-            if (budRes.ok) setBudgets(await budRes.json());
+            // Determine params
+            const period = selectedMonth === -1 ? 'year' : 'month';
+            const params = new URLSearchParams({
+                year: selectedYear.toString(),
+                period: period
+            });
+            if (period === 'month') {
+                params.append('month', selectedMonth.toString());
+            }
+
+            const res = await fetch(`/api/summary?${params.toString()}`);
+            if (res.ok) {
+                const data = await res.json();
+                setSummary(data);
+            }
         } catch (error) {
-            console.error('Error cargando datos:', error);
+            console.error('Error cargando resumen:', error);
         }
         setLoading(false);
     };
-
-    // Dev warning for invalid dates
-    useEffect(() => {
-        if (process.env.NODE_ENV !== "production" && !loading) {
-            const invalidInc = incomes.filter(i => !parseAppDate(i.date)).length;
-            const invalidExp = expenses.filter(i => !parseAppDate(i.date)).length;
-            if (invalidInc + invalidExp > 0) {
-                console.warn(`[Resumen] Invalid dates found: Incomes(${invalidInc}), Expenses(${invalidExp})`);
-            }
-        }
-    }, [incomes, expenses, loading]);
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
     };
 
-    // View State
-    const isYearView = selectedMonth === -1;
+    const periodLabel = selectedMonth === -1
+        ? `(${selectedYear})`
+        : `(${['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][selectedMonth]} ${selectedYear})`;
 
-    // Current month/year check (for projections)
-    const isCurrentPeriod = isYearView
-        ? selectedYear === new Date().getFullYear()
-        : (selectedYear === new Date().getFullYear() && selectedMonth === new Date().getMonth());
+    const trendLabel = selectedMonth === -1 ? 'vs año anterior' : 'vs mes anterior';
 
-    // Helper for safe date extraction
-    const getYear = (dateStr) => {
-        const d = parseAppDate(dateStr);
-        return d ? d.getFullYear() : null;
-    };
-
-    const getMonth = (dateStr) => {
-        const d = parseAppDate(dateStr);
-        return d ? d.getMonth() : null;
-    };
-
-    // Filter by year
-    const filteredIncomes = incomes.filter((i) => getYear(i.date) === selectedYear);
-    const filteredExpenses = expenses.filter((e) => getYear(e.date) === selectedYear);
-
-    // Filter by Month (if not year view)
-    const currentMonthIncomes = isYearView ? filteredIncomes : filteredIncomes.filter((i) => getMonth(i.date) === selectedMonth);
-    const currentMonthExpenses = isYearView ? filteredExpenses : filteredExpenses.filter((e) => getMonth(e.date) === selectedMonth);
-
-    // PREVIOUS PERIOD DATA (for trends)
-    // If Month View: Previous Month. If Year View: Previous Year.
-    const prevPeriodRecalculated = (() => {
-        if (isYearView) {
-            const prevYear = selectedYear - 1;
-            const pIncomes = incomes.filter(i => getYear(i.date) === prevYear);
-            const pExpenses = expenses.filter(e => getYear(e.date) === prevYear);
-            return {
-                income: pIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0),
-                expense: pExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
-            };
-        } else {
-            const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
-            const prevMonthYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
-            const pIncomes = incomes.filter((i) => {
-                const d = parseAppDate(i.date);
-                if (!d) return false;
-                return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
-            });
-            const pExpenses = expenses.filter((e) => {
-                const d = parseAppDate(e.date);
-                if (!d) return false;
-                return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
-            });
-            return {
-                income: pIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0),
-                expense: pExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
-            };
-        }
-    })();
-
-    const prevPeriodSaving = prevPeriodRecalculated.income - prevPeriodRecalculated.expense;
-
-    // KPI CALCULATIONS (Displayed)
-    const displayedIncome = currentMonthIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-    const displayedExpenses = currentMonthExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-    const displayedSavings = displayedIncome - displayedExpenses;
-    const displayedSavingsRate = displayedIncome > 0 ? (displayedSavings / displayedIncome) * 100 : 0;
-
-    // Trends Calculation
-    const incomeTrend = prevPeriodRecalculated.income > 0
-        ? ((displayedIncome - prevPeriodRecalculated.income) / prevPeriodRecalculated.income) * 100
-        : 0;
-    const expenseTrend = prevPeriodRecalculated.expense > 0
-        ? ((displayedExpenses - prevPeriodRecalculated.expense) / prevPeriodRecalculated.expense) * 100
-        : 0;
-    const savingsTrend = prevPeriodSaving !== 0
-        ? ((displayedSavings - prevPeriodSaving) / Math.abs(prevPeriodSaving)) * 100
-        : 0;
-
-    // BUDGET LOGIC
-    const monthlyBudgetBase = budgets.reduce((sum, b) => sum + parseFloat(b.monthly_amount || 0), 0);
-    const displayedBudget = isYearView ? monthlyBudgetBase * 12 : monthlyBudgetBase;
-
-    // Budget usage ratio
-    const budgetUsageRatio = displayedBudget > 0 ? (displayedExpenses / displayedBudget) * 100 : 0;
-
-    // Constants Labels
-    const periodLabel = isYearView ? `(${selectedYear})` : '(este mes)';
-    const trendLabel = isYearView ? 'vs año anterior' : 'vs mes anterior';
-
-    // Month names
+    // Month names for select
     const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-    // Calculate financial status (Reused logic but adapted)
+    // Generate years list (simple range for now, or could fetch available years from API if needed, strictly defaulting to recent range)
+    // To match previous logic exactly, we'd need to fetch year range. 
+    // For efficiency, let's hardcode a reasonable range or keep it dynamic if we had the list. 
+    // Let's assume user has data in recent 5 years + next year.
+    const currentYear = new Date().getFullYear();
+    const allYears = Array.from({ length: 6 }, (_, i) => currentYear + 1 - i); // [2026, 2025, 2024...]
+
+    if (loading && !summary) {
+        return (
+            <div className="flex-center" style={{ minHeight: '400px' }}>
+                <div className="spinner"></div>
+            </div>
+        );
+    }
+
+    // Default empty structure if load failed
+    const data = summary || {
+        kpi: { income: 0, expenses: 0, savings: 0, savingsRate: 0, trends: { income: 0, expenses: 0, savings: 0 } },
+        budget: { total: 0, usage: 0, ratio: 0 },
+        charts: { monthly: [], categories: [], types: [] },
+        meta: { period: 'year' }
+    };
+
+    // Helper colors
+    const getProgressColor = (ratio) => {
+        if (ratio > 90) return 'red';
+        if (ratio > 70) return 'yellow';
+        return 'green';
+    };
+
     const getFinancialStatus = () => {
-        if (budgetUsageRatio > 100 || (isYearView ? displayedSavings < 0 : displayedSavings < 0)) { // Simple check
+        const { ratio, total } = data.budget;
+        const { savings, savingsRate } = data.kpi;
+        const isYearView = data.meta.period === 'year';
+
+        if (ratio > 100 || savings < 0) {
             return { status: 'danger', label: 'Excedido', desc: 'Gastos por encima del presupuesto' };
         }
-        if (budgetUsageRatio > (isYearView ? 90 : 70) || (displayedSavingsRate > 0 && displayedSavingsRate < 10)) {
+        if (ratio > (isYearView ? 90 : 70) || (savingsRate > 0 && savingsRate < 10)) {
             return { status: 'warning', label: 'Riesgo', desc: 'Acercándote al límite' };
         }
         return { status: 'success', label: 'Bajo control', desc: 'Finanzas saludables' };
@@ -162,47 +107,41 @@ export default function ResumenPage() {
 
     const financialStatus = getFinancialStatus();
 
-    // Projected expenses (Only for current Month view, hidden/simplified for Year view)
+    // Projected expenses logic (client side estimation based on current date)
+    const isCurrentPeriod = data.meta.period === 'month'
+        && selectedYear === new Date().getFullYear()
+        && selectedMonth === new Date().getMonth();
+
     const dayOfMonth = new Date().getDate();
     const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-    const projectedExpenses = (!isYearView && isCurrentPeriod && dayOfMonth > 0)
-        ? (displayedExpenses / dayOfMonth) * daysInMonth
-        : displayedExpenses;
+    const projectedExpenses = (isCurrentPeriod && dayOfMonth > 0)
+        ? (data.kpi.expenses / dayOfMonth) * daysInMonth
+        : data.kpi.expenses;
 
-    const getProgressColor = (ratio) => {
-        if (ratio > 90) return 'red';
-        if (ratio > 70) return 'yellow';
-        return 'green';
-    };
-
-    // Smart Alerts (Simplified for mixed view)
+    // Smart Alerts
     const generateSmartAlerts = () => {
         const alerts = [];
+        const { ratio } = data.budget;
+        const { savingsRate, savings } = data.kpi;
 
-        // Only run category checks if NOT in year view (too detailed) or adapt?
-        // Let's stick to budget check for year view
-
-        if (budgetUsageRatio > 70 && budgetUsageRatio < 100) {
+        if (ratio > 70 && ratio < 100) {
             alerts.push({
                 type: 'warning',
                 icon: '📊',
                 title: 'Presupuesto en riesgo',
-                desc: `Has consumido el ${budgetUsageRatio.toFixed(0)}% del presupuesto ${isYearView ? 'anual' : 'mensual'}`
+                desc: `Has consumido el ${ratio.toFixed(0)}% del presupuesto`
             });
         }
-
-        if (displayedSavingsRate > 20) {
+        if (savingsRate > 20) {
             alerts.push({
                 type: 'success',
                 icon: '🎯',
                 title: 'Excelente tasa de ahorro',
-                desc: `Estás ahorrando el ${displayedSavingsRate.toFixed(0)}% de tus ingresos`
+                desc: `Estás ahorrando el ${savingsRate.toFixed(0)}% de tus ingresos`
             });
         }
-
-        // Investment capacity (only month view makes sense usually, but logic holds for year too)
-        if (displayedSavings > 0 && displayedBudget > 0) {
-            const safeToInvest = displayedSavings * 0.7;
+        if (savings > 0 && data.budget.total > 0) {
+            const safeToInvest = savings * 0.7;
             if (safeToInvest > 100) {
                 alerts.push({
                     type: 'success',
@@ -212,81 +151,18 @@ export default function ResumenPage() {
                 });
             }
         }
-
         return alerts.slice(0, 4);
     };
-
     const smartAlerts = generateSmartAlerts();
 
-    // Data for monthly chart (Always useful)
-    const monthNamesShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const monthlyData = monthNamesShort.map((name, idx) => {
-        const mIncomes = filteredIncomes.filter((i) => getMonth(i.date) === idx);
-        const mExpenses = filteredExpenses.filter((e) => getMonth(e.date) === idx);
-        const inc = mIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-        const exp = mExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-        return { name, income: inc, expenses: exp, savings: inc - exp };
-    }).filter((d) => d.income > 0 || d.expenses > 0);
-
-    // Savings target line for chart
-    const avgMonthlySavingsTarget = (displayedBudget / (isYearView ? 12 : 1)) > 0
-        ? (displayedIncome - displayedExpenses) // Just use current saving for line or budget diff? 
-        : displayedSavings;
-    // Simplification: In Year View, the monthly chart still shows months. 
-    // The "Target" line (dashed) is interesting. Let's keep it as (Monthly Budget - Avg Expenses)? 
-    // Actually earlier it was `monthIncome - monthlyBudget`.
-    // Let's keep it simple: `(Total Income / 12) - (Total Budget / 12)` if year view?
-    // Or just hide it if complex. Let's use `monthlyBudgetBase` for budget line context.
-
-    // Category data (filtered by scope)
-    const expenseByCat = {};
-    currentMonthExpenses.forEach((e) => {
-        if (!expenseByCat[e.category]) expenseByCat[e.category] = 0;
-        expenseByCat[e.category] += parseFloat(e.amount);
-    });
-    const categoryData = Object.entries(expenseByCat)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value);
-
-    // Fixed vs Variable
-    const expenseByType = { Fijo: 0, Variable: 0 };
-    currentMonthExpenses.forEach((e) => {
-        const type = e.expense_type || 'Variable';
-        expenseByType[type] = (expenseByType[type] || 0) + parseFloat(e.amount);
-    });
-    const typeData = Object.entries(expenseByType).map(([name, value]) => ({ name, value }));
-    const typeDataTotal = typeData.reduce((sum, t) => sum + t.value, 0);
-
-    // Available years
-    const allYears = [...new Set([
-        ...incomes.map((i) => getYear(i.date)).filter(y => y !== null),
-        ...expenses.map((e) => getYear(e.date)).filter(y => y !== null),
-        new Date().getFullYear()
-    ])].sort((a, b) => b - a);
-
-    if (loading) {
-        return (
-            <div className="flex-center" style={{ minHeight: '400px' }}>
-                <div className="spinner"></div>
-            </div>
-        );
-    }
+    // Chart Data Preparation
+    const monthlyData = data.charts.monthly.filter(d => d.income > 0 || d.expenses > 0);
+    const categoryData = data.charts.categories;
+    const typeData = data.charts.types;
 
     return (
         <div className="page-container">
-            {/* Status Header - Responsive Refactor */}
-            {process.env.NODE_ENV !== 'production' && (
-                <div style={{ background: '#fef3c7', padding: '10px', fontSize: '10px', marginBottom: '10px', borderRadius: '4px', color: '#000' }}>
-                    <strong>DEBUG:</strong><br />
-                    Total incomes: {incomes.length} | Valid: {incomes.filter(i => parseAppDate(i.date)).length}<br />
-                    Total expenses: {expenses.length} | Valid: {expenses.filter(e => parseAppDate(e.date)).length}<br />
-                    Selected: {selectedYear} / {selectedMonth}<br />
-                    Filtered (Year): {filteredExpenses.length}<br />
-                    Filtered (Month/Final): {currentMonthExpenses.length}<br />
-                    Sample Dates (Raw): {expenses.slice(0, 3).map(e => e.date).join(' | ')}<br />
-                    Sample Dates (Parsed): {expenses.slice(0, 3).map(e => String(parseAppDate(e.date))).join(' | ')}
-                </div>
-            )}
+            {/* Status Header */}
             <div className="responsive-header">
                 <div>
                     <div className="status-header-title">Estado financiero {periodLabel}</div>
@@ -298,7 +174,6 @@ export default function ResumenPage() {
                         {financialStatus.label}
                     </div>
 
-                    {/* Segmented Control for Period Toggle */}
                     <div className="segmented-control">
                         <button
                             onClick={() => {
@@ -343,103 +218,102 @@ export default function ResumenPage() {
                 </div>
             </div>
 
-            {/* Enhanced KPIs */}
+            {/* KPIs */}
             <div className="kpi-grid">
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Ingresos {periodLabel}</div>
+                    <div className="kpi-label">Ingresos</div>
                     <div className="kpi-main">
-                        <div className="kpi-value text-success">{formatCurrency(displayedIncome)}</div>
+                        <div className="kpi-value text-success">{formatCurrency(data.kpi.income)}</div>
                     </div>
-                    {prevPeriodRecalculated.income > 0 && (
+                    {data.kpi.trends.income !== 0 && (
                         <div className="kpi-trend">
-                            <span className={`trend ${incomeTrend >= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(incomeTrend).toFixed(0)}% {trendLabel}
+                            <span className={`trend ${data.kpi.trends.income >= 0 ? 'trend-up' : 'trend-down'}`}>
+                                {Math.abs(data.kpi.trends.income).toFixed(0)}% {trendLabel}
                             </span>
                         </div>
                     )}
                 </div>
 
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Gastos {periodLabel}</div>
+                    <div className="kpi-label">Gastos</div>
                     <div className="kpi-main">
-                        <div className="kpi-value text-danger">{formatCurrency(displayedExpenses)}</div>
+                        <div className="kpi-value text-danger">{formatCurrency(data.kpi.expenses)}</div>
                     </div>
-                    {prevPeriodRecalculated.expense > 0 && (
+                    {data.kpi.trends.expenses !== 0 && (
                         <div className="kpi-trend">
-                            <span className={`trend ${expenseTrend <= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(expenseTrend).toFixed(0)}% {trendLabel}
+                            <span className={`trend ${data.kpi.trends.expenses <= 0 ? 'trend-up' : 'trend-down'}`}>
+                                {Math.abs(data.kpi.trends.expenses).toFixed(0)}% {trendLabel}
                             </span>
                         </div>
                     )}
                 </div>
 
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Ahorro {periodLabel}</div>
+                    <div className="kpi-label">Ahorro</div>
                     <div className="kpi-main">
-                        <div className={`kpi-value ${displayedSavings >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                            {formatCurrency(displayedSavings)}
+                        <div className={`kpi-value ${data.kpi.savings >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
+                            {formatCurrency(data.kpi.savings)}
                         </div>
                     </div>
-                    {prevPeriodSaving !== 0 && (
+                    {data.kpi.trends.savings !== 0 && (
                         <div className="kpi-trend">
-                            <span className={`trend ${savingsTrend >= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(savingsTrend).toFixed(0)}% {trendLabel}
+                            <span className={`trend ${data.kpi.trends.savings >= 0 ? 'trend-up' : 'trend-down'}`}>
+                                {Math.abs(data.kpi.trends.savings).toFixed(0)}% {trendLabel}
                             </span>
                         </div>
                     )}
                 </div>
 
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Tasa de ahorro {periodLabel}</div>
+                    <div className="kpi-label">Tasa de ahorro</div>
                     <div className="kpi-main">
-                        <div className={`kpi-value ${displayedSavingsRate >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                            {displayedSavingsRate.toFixed(1)}%
+                        <div className={`kpi-value ${data.kpi.savingsRate >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
+                            {data.kpi.savingsRate.toFixed(1)}%
                         </div>
                     </div>
                     <div className="kpi-trend">
                         <span className="text-muted text-sm">
-                            {formatCurrency(displayedSavings)} en total
+                            Target: 20%
                         </span>
                     </div>
                 </div>
             </div>
 
-            {/* Budget Progress with Zones */}
-            {displayedBudget > 0 && (
+            {/* Budget */}
+            {data.budget.total > 0 && (
                 <div className="card mb-lg">
                     <div className="card-body">
-                        <h3 className="section-title">Presupuesto {isYearView ? 'anual' : 'mensual'}</h3>
+                        <h3 className="section-title">Presupuesto {data.meta.period === 'year' ? 'anual' : 'mensual'}</h3>
                         <div className="grid grid-3 gap-md mb-md">
                             <div>
                                 <div className="text-muted text-sm">Presupuesto</div>
-                                <div className="font-semibold">{formatCurrency(displayedBudget)}</div>
+                                <div className="font-semibold">{formatCurrency(data.budget.total)}</div>
                             </div>
                             <div>
                                 <div className="text-muted text-sm">Gastado</div>
-                                <div className="font-semibold">{formatCurrency(displayedExpenses)}</div>
+                                <div className="font-semibold">{formatCurrency(data.budget.usage)}</div>
                             </div>
                             <div>
                                 <div className="text-muted text-sm">Disponible</div>
-                                <div className={`font-semibold ${displayedBudget - displayedExpenses >= 0 ? 'text-success' : 'text-danger'}`}>
-                                    {formatCurrency(displayedBudget - displayedExpenses)}
+                                <div className={`font-semibold ${data.budget.total - data.budget.usage >= 0 ? 'text-success' : 'text-danger'}`}>
+                                    {formatCurrency(data.budget.total - data.budget.usage)}
                                 </div>
                             </div>
                         </div>
                         <div className="progress-zoned">
                             <div
-                                className={`progress-zoned-bar ${getProgressColor(budgetUsageRatio)}`}
-                                style={{ width: `${Math.min(budgetUsageRatio, 100)}%` }}
+                                className={`progress-zoned-bar ${getProgressColor(data.budget.ratio)}`}
+                                style={{ width: `${Math.min(data.budget.ratio, 100)}%` }}
                             />
                         </div>
-                        {!isYearView && (
+                        {isCurrentPeriod && (
                             <div className="projection-text">
                                 📈 Si mantienes este ritmo, cerrarás el mes con un gasto de {formatCurrency(projectedExpenses)}
-                                {projectedExpenses > displayedBudget && (
+                                {projectedExpenses > data.budget.total && (
                                     <span className="text-danger"> (superarás el presupuesto)</span>
                                 )}
                             </div>
                         )}
-                        {/* Optionally add Year projection here if desired later */}
                     </div>
                 </div>
             )}
@@ -464,13 +338,15 @@ export default function ResumenPage() {
                 </div>
             )}
 
-            {/* Chart 1: Monthly Savings Bar Chart */}
+
+            {/* Charts */}
             {monthlyData.length > 0 && (
                 <ChartContainer
                     title="Evolución mensual del ahorro"
                     heightMobile={280}
                     heightDesktop={260}
-                    refreshKey={`${monthlyData.length}-${isYearView ? 'year' : 'month'}-${selectedYear}`}
+                    // Refresh if data changes drastically
+                    refreshKey={`${monthlyData.length}-${selectedYear}`}
                     render={({ width, height, isMobile }) => (
                         <BarChart
                             width={width}
@@ -493,7 +369,6 @@ export default function ResumenPage() {
                                 width={isMobile ? 35 : 45}
                             />
                             <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
-                            {/* Disabled ReferenceLine for complexity reduction - could read 'monthlyBudgetBase' */}
                             <Bar
                                 dataKey="savings"
                                 radius={[4, 4, 0, 0]}
@@ -512,14 +387,13 @@ export default function ResumenPage() {
             )}
 
             <div className="grid grid-2 gap-lg">
-                {/* Chart 2: Category Pie Chart */}
                 {categoryData.length > 0 && (
                     <ChartContainer
-                        title={`Gastos por categoría ${periodLabel}`}
+                        title={`Gastos por categoría`}
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
-                        refreshKey={`${categoryData.length}-${selectedMonth}`}
+                        refreshKey={categoryData.length}
                         render={({ width, height }) => {
                             const size = Math.min(width, height);
                             const outerR = size * 0.28;
@@ -553,14 +427,13 @@ export default function ResumenPage() {
                     />
                 )}
 
-                {/* Chart 3: Fixed vs Variable Pie Chart */}
                 {typeData.length > 0 && (
                     <ChartContainer
-                        title={`Gasto fijo vs variable ${periodLabel}`}
+                        title={`Gasto fijo vs variable`}
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
-                        refreshKey={`${typeDataTotal}-${selectedMonth}`}
+                        refreshKey={typeData.length}
                         render={({ width, height }) => {
                             const size = Math.min(width, height);
                             const outerR = size * 0.28;
@@ -593,32 +466,6 @@ export default function ResumenPage() {
                     />
                 )}
             </div>
-
-            {/* Year Summary - Only needed if NOT in Year View? Or keep redundancy? 
-                Actually, if user selects "Todo el año", the top KPIs are the year summary.
-                So this card becomes redundant in Year View. Let's hide it if isYearView.
-            */}
-            {!isYearView && (
-                <div className="card mt-lg">
-                    <div className="card-header">
-                        <h3>Resumen anual {selectedYear}</h3>
-                    </div>
-                    <div className="card-body">
-                        <div className="grid grid-4 gap-md">
-                            <div>
-                                <div className="text-muted text-sm">Total ingresos</div>
-                                <div className="font-semibold text-success">{formatCurrency(filteredIncomes.reduce((s, i) => s + parseFloat(i.amount), 0))}</div>
-                            </div>
-                            <div>
-                                <div className="text-muted text-sm">Total gastos</div>
-                                <div className="font-semibold text-danger">{formatCurrency(filteredExpenses.reduce((s, e) => s + parseFloat(e.amount), 0))}</div>
-                            </div>
-                            {/* ... can be simplified or just rely on the main KPIs when user toggles mode ... */}
-                            {/* For now, leaving it as a quick glance when in month mode. */}
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
