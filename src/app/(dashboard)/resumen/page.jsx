@@ -9,6 +9,7 @@ import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
 import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
+import { parseAppDate } from '@/lib/dateUtils';
 
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
@@ -42,6 +43,17 @@ export default function ResumenPage() {
         setLoading(false);
     };
 
+    // Dev warning for invalid dates
+    useEffect(() => {
+        if (process.env.NODE_ENV !== "production" && !loading) {
+            const invalidInc = incomes.filter(i => !parseAppDate(i.date)).length;
+            const invalidExp = expenses.filter(i => !parseAppDate(i.date)).length;
+            if (invalidInc + invalidExp > 0) {
+                console.warn(`[Resumen] Invalid dates found: Incomes(${invalidInc}), Expenses(${invalidExp})`);
+            }
+        }
+    }, [incomes, expenses, loading]);
+
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
     };
@@ -54,21 +66,32 @@ export default function ResumenPage() {
         ? selectedYear === new Date().getFullYear()
         : (selectedYear === new Date().getFullYear() && selectedMonth === new Date().getMonth());
 
+    // Helper for safe date extraction
+    const getYear = (dateStr) => {
+        const d = parseAppDate(dateStr);
+        return d ? d.getFullYear() : null;
+    };
+
+    const getMonth = (dateStr) => {
+        const d = parseAppDate(dateStr);
+        return d ? d.getMonth() : null;
+    };
+
     // Filter by year
-    const filteredIncomes = incomes.filter((i) => new Date(i.date).getFullYear() === selectedYear);
-    const filteredExpenses = expenses.filter((e) => new Date(e.date).getFullYear() === selectedYear);
+    const filteredIncomes = incomes.filter((i) => getYear(i.date) === selectedYear);
+    const filteredExpenses = expenses.filter((e) => getYear(e.date) === selectedYear);
 
     // Filter by Month (if not year view)
-    const currentMonthIncomes = isYearView ? filteredIncomes : filteredIncomes.filter((i) => new Date(i.date).getMonth() === selectedMonth);
-    const currentMonthExpenses = isYearView ? filteredExpenses : filteredExpenses.filter((e) => new Date(e.date).getMonth() === selectedMonth);
+    const currentMonthIncomes = isYearView ? filteredIncomes : filteredIncomes.filter((i) => getMonth(i.date) === selectedMonth);
+    const currentMonthExpenses = isYearView ? filteredExpenses : filteredExpenses.filter((e) => getMonth(e.date) === selectedMonth);
 
     // PREVIOUS PERIOD DATA (for trends)
     // If Month View: Previous Month. If Year View: Previous Year.
     const prevPeriodRecalculated = (() => {
         if (isYearView) {
             const prevYear = selectedYear - 1;
-            const pIncomes = incomes.filter(i => new Date(i.date).getFullYear() === prevYear);
-            const pExpenses = expenses.filter(e => new Date(e.date).getFullYear() === prevYear);
+            const pIncomes = incomes.filter(i => getYear(i.date) === prevYear);
+            const pExpenses = expenses.filter(e => getYear(e.date) === prevYear);
             return {
                 income: pIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0),
                 expense: pExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
@@ -77,11 +100,13 @@ export default function ResumenPage() {
             const prevMonth = selectedMonth === 0 ? 11 : selectedMonth - 1;
             const prevMonthYear = selectedMonth === 0 ? selectedYear - 1 : selectedYear;
             const pIncomes = incomes.filter((i) => {
-                const d = new Date(i.date);
+                const d = parseAppDate(i.date);
+                if (!d) return false;
                 return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
             });
             const pExpenses = expenses.filter((e) => {
-                const d = new Date(e.date);
+                const d = parseAppDate(e.date);
+                if (!d) return false;
                 return d.getMonth() === prevMonth && d.getFullYear() === prevMonthYear;
             });
             return {
@@ -196,8 +221,8 @@ export default function ResumenPage() {
     // Data for monthly chart (Always useful)
     const monthNamesShort = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const monthlyData = monthNamesShort.map((name, idx) => {
-        const mIncomes = filteredIncomes.filter((i) => new Date(i.date).getMonth() === idx);
-        const mExpenses = filteredExpenses.filter((e) => new Date(e.date).getMonth() === idx);
+        const mIncomes = filteredIncomes.filter((i) => getMonth(i.date) === idx);
+        const mExpenses = filteredExpenses.filter((e) => getMonth(e.date) === idx);
         const inc = mIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
         const exp = mExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
         return { name, income: inc, expenses: exp, savings: inc - exp };
@@ -234,8 +259,8 @@ export default function ResumenPage() {
 
     // Available years
     const allYears = [...new Set([
-        ...incomes.map((i) => new Date(i.date).getFullYear()),
-        ...expenses.map((e) => new Date(e.date).getFullYear()),
+        ...incomes.map((i) => getYear(i.date)).filter(y => y !== null),
+        ...expenses.map((e) => getYear(e.date)).filter(y => y !== null),
         new Date().getFullYear()
     ])].sort((a, b) => b - a);
 

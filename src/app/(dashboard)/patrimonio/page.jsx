@@ -10,6 +10,7 @@ import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
 import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
+import { parseAppDate } from '@/lib/dateUtils';
 
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
@@ -19,13 +20,6 @@ const safeFloat = (val) => {
     if (val === null || val === undefined) return 0;
     const parsed = parseFloat(val);
     return isNaN(parsed) || !isFinite(parsed) ? 0 : parsed;
-};
-
-// Safe date parser
-const safeDate = (val) => {
-    if (!val) return null;
-    const d = new Date(val);
-    return isNaN(d.getTime()) ? null : d;
 };
 
 export default function PatrimonioPage() {
@@ -69,10 +63,10 @@ export default function PatrimonioPage() {
         const accounts = {};
         investments.forEach((inv) => {
             if (!inv || !inv.account) return;
-            const invDate = safeDate(inv.date);
+            const invDate = parseAppDate(inv.date);
             if (!invDate) return;
 
-            const existingDate = accounts[inv.account] ? safeDate(accounts[inv.account].date) : null;
+            const existingDate = accounts[inv.account] ? parseAppDate(accounts[inv.account].date) : null;
             if (!existingDate || invDate > existingDate) {
                 accounts[inv.account] = inv;
             }
@@ -105,10 +99,10 @@ export default function PatrimonioPage() {
         const accounts = {};
         cashSnapshots.forEach((snap) => {
             if (!snap || !snap.account) return;
-            const snapDate = safeDate(snap.date);
+            const snapDate = parseAppDate(snap.date);
             if (!snapDate) return;
 
-            const existingDate = accounts[snap.account] ? safeDate(accounts[snap.account].date) : null;
+            const existingDate = accounts[snap.account] ? parseAppDate(accounts[snap.account].date) : null;
             if (!existingDate || snapDate > existingDate) {
                 accounts[snap.account] = snap;
             }
@@ -124,19 +118,19 @@ export default function PatrimonioPage() {
     // Calculate first recorded patrimony for growth
     const firstPatrimony = useMemo(() => {
         const allDates = [
-            ...investments.map(i => safeDate(i?.date)),
-            ...cashSnapshots.map(c => safeDate(c?.date))
+            ...investments.map(i => parseAppDate(i?.date)),
+            ...cashSnapshots.map(c => parseAppDate(c?.date))
         ].filter(d => d !== null).sort((a, b) => a - b);
 
         if (allDates.length === 0) return 0;
 
         const firstMonth = allDates[0];
         const firstMonthInv = investments.filter(i => {
-            const d = safeDate(i?.date);
+            const d = parseAppDate(i?.date);
             return d && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
         });
         const firstMonthCash = cashSnapshots.filter(c => {
-            const d = safeDate(c?.date);
+            const d = parseAppDate(c?.date);
             return d && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
         });
 
@@ -209,11 +203,11 @@ export default function PatrimonioPage() {
     const ytdGrowth = useMemo(() => {
         const currentYear = new Date().getFullYear();
         const januarySnapshots = cashSnapshots.filter((s) => {
-            const d = safeDate(s?.date);
+            const d = parseAppDate(s?.date);
             return d && d.getFullYear() === currentYear && d.getMonth() === 0;
         });
         const januaryInvestments = investments.filter((i) => {
-            const d = safeDate(i?.date);
+            const d = parseAppDate(i?.date);
             return d && d.getFullYear() === currentYear && d.getMonth() === 0;
         });
 

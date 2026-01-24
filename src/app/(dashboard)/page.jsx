@@ -9,6 +9,9 @@ import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
 
 
+import { parseAppDate } from '@/lib/dateUtils';
+
+
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 export default function HomePage() {
@@ -103,7 +106,9 @@ export default function HomePage() {
     };
 
     const formatTime = (dateStr) => {
-        const d = new Date(dateStr);
+        const d = parseAppDate(dateStr);
+        if (!d) return dateStr;
+
         const now = new Date();
         const isToday = d.toDateString() === now.toDateString();
         if (isToday) {
@@ -116,7 +121,13 @@ export default function HomePage() {
     const currentCash = useMemo(() => {
         const byAccount = {};
         cashSnapshots.forEach(snap => {
-            if (!byAccount[snap.account] || new Date(snap.date) > new Date(byAccount[snap.account].date)) {
+            const snapDate = parseAppDate(snap.date);
+            if (!snapDate) return;
+
+            const existing = byAccount[snap.account];
+            const existingDate = existing ? parseAppDate(existing.date) : null;
+
+            if (!existing || (snapDate && existingDate && snapDate > existingDate)) {
                 byAccount[snap.account] = snap;
             }
         });
@@ -126,7 +137,13 @@ export default function HomePage() {
     const currentInvestments = useMemo(() => {
         const byAccount = {};
         investments.forEach(inv => {
-            if (!byAccount[inv.account] || new Date(inv.date) > new Date(byAccount[inv.account].date)) {
+            const invDate = parseAppDate(inv.date);
+            if (!invDate) return;
+
+            const existing = byAccount[inv.account];
+            const existingDate = existing ? parseAppDate(existing.date) : null;
+
+            if (!existing || (invDate && existingDate && invDate > existingDate)) {
                 byAccount[inv.account] = inv;
             }
         });
@@ -144,8 +161,8 @@ export default function HomePage() {
     const thisMonthInvChange = useMemo(() => {
         const now = new Date();
         const thisMonth = investments.filter(i => {
-            const d = new Date(i.date);
-            return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+            const d = parseAppDate(i.date);
+            return d && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
         });
         return thisMonth.reduce((sum, i) => sum + parseFloat(i.contribution), 0);
     }, [investments]);
@@ -154,7 +171,13 @@ export default function HomePage() {
     const investmentsByType = useMemo(() => {
         const byAccount = {};
         investments.forEach(inv => {
-            if (!byAccount[inv.account] || new Date(inv.date) > new Date(byAccount[inv.account].date)) {
+            const invDate = parseAppDate(inv.date);
+            if (!invDate) return;
+
+            const existing = byAccount[inv.account];
+            const existingDate = existing ? parseAppDate(existing.date) : null;
+
+            if (!existing || (invDate && existingDate && invDate > existingDate)) {
                 byAccount[inv.account] = inv;
             }
         });
@@ -176,7 +199,11 @@ export default function HomePage() {
         const allMovements = [
             ...incomes.map(i => ({ ...i, type: 'income', title: i.source || i.category })),
             ...expenses.map(e => ({ ...e, type: 'expense', title: e.category }))
-        ].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
+        ].sort((a, b) => {
+            const dateA = parseAppDate(a.date) || 0;
+            const dateB = parseAppDate(b.date) || 0;
+            return dateB - dateA;
+        }).slice(0, 5);
         return allMovements;
     }, [incomes, expenses]);
 

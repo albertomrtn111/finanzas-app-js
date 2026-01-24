@@ -9,6 +9,7 @@ import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
 import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
+import { parseAppDate } from '@/lib/dateUtils';
 
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
@@ -47,7 +48,9 @@ export default function InversionesResumenPage() {
     // Sort by account and date
     const sorted = [...investments].sort((a, b) => {
         if (a.account !== b.account) return a.account.localeCompare(b.account);
-        return new Date(a.date) - new Date(b.date);
+        const dateA = parseAppDate(a.date) || new Date(0);
+        const dateB = parseAppDate(b.date) || new Date(0);
+        return dateA - dateB;
     });
 
     // Calculate cumulative contributions per account
@@ -115,36 +118,44 @@ export default function InversionesResumenPage() {
         ? assetTypeData.map(d => d.value.toFixed(0)).join('-')
         : '0';
 
-    // Evolution data: contributions vs market value over time
-    const dateMap = {};
-    let cumulativeContrib = 0;
-    sorted.forEach((inv) => {
-        const dateKey = inv.date.split('T')[0];
-        cumulativeContrib += parseFloat(inv.contribution);
-        if (!dateMap[dateKey]) {
-            dateMap[dateKey] = { date: dateKey, aportado: 0, valor: 0 };
-        }
-        dateMap[dateKey].aportado = cumulativeContrib;
-        dateMap[dateKey].valor = parseFloat(inv.current_value);
+    // Evolution data: contributions vs market value over time (Portfolio Wide)
+    // 1. Group events by date
+    const eventsByDate = {};
+    investments.forEach((inv) => {
+        const d = parseAppDate(inv.date);
+        if (!d) return;
+        const dateKey = d.toISOString().split('T')[0];
+
+        if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
+        eventsByDate[dateKey].push(inv);
     });
 
-    // Accumulate value across all accounts per date
-    const evolutionData = Object.values(dateMap)
-        .sort((a, b) => new Date(a.date) - new Date(b.date));
+    // 2. Sort dates chronologically
+    const sortedDates = Object.keys(eventsByDate).sort((a, b) => new Date(a) - new Date(b));
 
-    // Recalculate with proper accumulation
+    // 3. Iterate dates to build cumulative state
+    const accountValues = {}; // map account -> current_value snapshot
+    let runningTotalContrib = 0;
     const evolutionWithAccumulation = [];
-    let runningContrib = 0;
-    const lastValueByAccount = {};
 
-    sorted.forEach((inv) => {
-        runningContrib += parseFloat(inv.contribution);
-        lastValueByAccount[inv.account] = parseFloat(inv.current_value);
-        const totalCurrentValue = Object.values(lastValueByAccount).reduce((s, v) => s + v, 0);
+    sortedDates.forEach((date) => {
+        const daysEvents = eventsByDate[date];
+
+        daysEvents.forEach((inv) => {
+            // Add contribution (delta) to running total
+            runningTotalContrib += parseFloat(inv.contribution);
+
+            // Update latest value for this specific account
+            accountValues[inv.account] = parseFloat(inv.current_value);
+        });
+
+        // Calculate total portfolio value at this date
+        // Sum of latest known value of ALL accounts
+        const totalCurrentValue = Object.values(accountValues).reduce((sum, val) => sum + val, 0);
 
         evolutionWithAccumulation.push({
-            date: inv.date.split('T')[0],
-            aportado: runningContrib,
+            date: date,
+            aportado: runningTotalContrib,
             valor: totalCurrentValue
         });
     });

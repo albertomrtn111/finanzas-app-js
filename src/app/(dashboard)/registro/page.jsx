@@ -151,15 +151,17 @@ export default function RegistroPage() {
         setTimeout(() => setMessage({ type: '', text: '' }), 3000);
     };
 
-    const cancelEdit = () => {
+    const cancelEdit = (dateOverride) => {
         setEditingId(null);
-        // Reset to autoDate (last used) instead of TODAY
+        // Use override if provided (during submit), otherwise use current autoDate state (during cancel/tab switch)
+        const dateToUse = (typeof dateOverride === 'string') ? dateOverride : autoDate;
+
         setExpenseForm({
-            ...getInitialExpenseForm(autoDate),
+            ...getInitialExpenseForm(dateToUse),
             category: expenseCategories.length > 0 ? expenseCategories[0].name : ''
         });
         setIncomeForm({
-            ...getInitialIncomeForm(autoDate),
+            ...getInitialIncomeForm(dateToUse),
             category: incomeCategories.length > 0 ? incomeCategories[0].name : ''
         });
     };
@@ -216,7 +218,8 @@ export default function RegistroPage() {
                 // Update sticky date on success
                 updateAutoDate(expenseForm.date);
 
-                cancelEdit();
+                // Pass the DATE explicitly to cancelEdit to avoid stale state
+                cancelEdit(expenseForm.date);
                 reloadList();
             } else {
                 showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'} el gasto`);
@@ -251,7 +254,8 @@ export default function RegistroPage() {
                 // Update sticky date on success
                 updateAutoDate(incomeForm.date);
 
-                cancelEdit();
+                // Pass the DATE explicitly to cancelEdit to avoid stale state
+                cancelEdit(incomeForm.date);
                 reloadList();
             } else {
                 showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'} el ingreso`);
