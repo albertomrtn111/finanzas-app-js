@@ -18,22 +18,33 @@ export function parseAppDate(value) {
     if (value instanceof Date) return isValidDate(value) ? value : null;
 
     if (typeof value === "string") {
-        const v = value.trim();
+        // Remove extra spaces and split off any time component (e.g., "DD/MM/YYYY HH:mm")
+        // Taking the first part assumes dates are at the start.
+        // If format is YYYY-MM-DDTHH:mm... (ISO), splitting by space might keep it intact if no space, 
+        // but let's handle the split carefully. 
+        // actually for ISO "T" is the separator.
+        // Let's just trim first.
+        let v = value.trim();
 
-        // ISO: 2025-10-23 or 2025-10-23T...
-        if (/^\d{4}-\d{2}-\d{2}/.test(v)) {
-            const d = new Date(v);
+        // Use a simpler approach: extract the date part if it matches expected patterns
+
+        // ISO-like: YYYY-MM-DD (start of string)
+        const isoMatch = v.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (isoMatch) {
+            const d = new Date(isoMatch[1]);
             return isValidDate(d) ? d : null;
         }
 
-        // EU: DD/MM/YYYY or D/M/YYYY
-        if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(v)) {
-            const [dd, mm, yyyy] = v.split("/");
+        // EU-like: DD/MM/YYYY
+        // Catch "23/10/2025" from "23/10/2025 10:00"
+        const euMatch = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (euMatch) {
+            const [_, dd, mm, yyyy] = euMatch;
             const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
             return isValidDate(d) ? d : null;
         }
 
-        // fallback
+        // Fallback for other string formats
         const d = new Date(v);
         return isValidDate(d) ? d : null;
     }

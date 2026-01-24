@@ -275,6 +275,18 @@ export default function ResumenPage() {
     return (
         <div className="page-container">
             {/* Status Header - Responsive Refactor */}
+            {process.env.NODE_ENV !== 'production' && (
+                <div style={{ background: '#fef3c7', padding: '10px', fontSize: '10px', marginBottom: '10px', borderRadius: '4px', color: '#000' }}>
+                    <strong>DEBUG:</strong><br />
+                    Total incomes: {incomes.length} | Valid: {incomes.filter(i => parseAppDate(i.date)).length}<br />
+                    Total expenses: {expenses.length} | Valid: {expenses.filter(e => parseAppDate(e.date)).length}<br />
+                    Selected: {selectedYear} / {selectedMonth}<br />
+                    Filtered (Year): {filteredExpenses.length}<br />
+                    Filtered (Month/Final): {currentMonthExpenses.length}<br />
+                    Sample Dates (Raw): {expenses.slice(0, 3).map(e => e.date).join(' | ')}<br />
+                    Sample Dates (Parsed): {expenses.slice(0, 3).map(e => String(parseAppDate(e.date))).join(' | ')}
+                </div>
+            )}
             <div className="responsive-header">
                 <div>
                     <div className="status-header-title">Estado financiero {periodLabel}</div>
@@ -308,7 +320,7 @@ export default function ResumenPage() {
                     <select
                         className="form-input form-select"
                         value={selectedYear}
-                        onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                        onChange={(e) => setSelectedYear(Number(e.target.value))}
                         style={{ minWidth: '100px' }}
                     >
                         {allYears.map((y) => (
@@ -320,7 +332,7 @@ export default function ResumenPage() {
                         <select
                             className="form-input form-select"
                             value={selectedMonth}
-                            onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                            onChange={(e) => setSelectedMonth(Number(e.target.value))}
                             style={{ minWidth: '120px' }}
                         >
                             {monthNames.map((name, idx) => (
