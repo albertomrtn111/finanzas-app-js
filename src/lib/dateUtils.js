@@ -5,6 +5,13 @@ export function isValidDate(d) {
     return d instanceof Date && !Number.isNaN(d.getTime());
 }
 
+export function localDateKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 /**
  * Robustly parses a date from various formats
  * Supports:
@@ -24,15 +31,16 @@ export function parseAppDate(value) {
         // but let's handle the split carefully. 
         // actually for ISO "T" is the separator.
         // Let's just trim first.
-        let v = value.trim();
+        const v = value.trim();
 
         // Use a simpler approach: extract the date part if it matches expected patterns
 
         // ISO-like: YYYY-MM-DD (start of string)
         const isoMatch = v.match(/^(\d{4}-\d{2}-\d{2})/);
         if (isoMatch) {
-            const d = new Date(isoMatch[1]);
-            return isValidDate(d) ? d : null;
+            const [year, month, day] = isoMatch[1].split('-').map(Number);
+            const d = new Date(year, month - 1, day);
+            return d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day ? d : null;
         }
 
         // EU-like: DD/MM/YYYY
@@ -41,7 +49,8 @@ export function parseAppDate(value) {
         if (euMatch) {
             const [_, dd, mm, yyyy] = euMatch;
             const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-            return isValidDate(d) ? d : null;
+            return d.getFullYear() === Number(yyyy) && d.getMonth() === Number(mm) - 1 &&
+                d.getDate() === Number(dd) ? d : null;
         }
 
         // Fallback for other string formats

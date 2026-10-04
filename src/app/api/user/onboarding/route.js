@@ -38,10 +38,10 @@ export async function PATCH(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const { step } = await request.json();
+        const { step } = await request.json().catch(() => ({}));
 
         // Validate step (0-5)
-        if (typeof step !== 'number' || step < 0 || step > 5) {
+        if (!Number.isInteger(step) || step < 0 || step > 5) {
             return NextResponse.json({ error: 'Step inválido (debe ser 0-5)' }, { status: 400 });
         }
 

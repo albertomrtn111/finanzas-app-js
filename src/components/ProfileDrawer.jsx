@@ -1,21 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
 
 export default function ProfileDrawer({ isOpen, onClose }) {
+    const { update: updateSession } = useSession();
     const [profile, setProfile] = useState({ name: '', email: '', authMethod: 'credentials' });
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
-    useEffect(() => {
-        if (isOpen) {
-            loadProfile();
-        }
-    }, [isOpen]);
-
-    const loadProfile = async () => {
+    const loadProfile = useCallback(async () => {
         setLoading(true);
         try {
             const res = await fetch('/api/user/profile');
@@ -28,7 +24,13 @@ export default function ProfileDrawer({ isOpen, onClose }) {
             console.error('Error loading profile:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const timer = setTimeout(() => { void loadProfile(); }, 0);
+        return () => clearTimeout(timer);
+    }, [isOpen, loadProfile]);
 
     const handleSave = async () => {
         if (!name.trim()) {
@@ -54,6 +56,7 @@ export default function ProfileDrawer({ isOpen, onClose }) {
             if (res.ok) {
                 const data = await res.json();
                 setProfile(prev => ({ ...prev, name: data.name }));
+                await updateSession().catch(() => {});
                 setMessage({ type: 'success', text: '¡Guardado correctamente!' });
                 setTimeout(() => setMessage({ type: '', text: '' }), 3000);
             } else {
@@ -87,6 +90,9 @@ export default function ProfileDrawer({ isOpen, onClose }) {
             {/* Drawer */}
             <div
                 className="profile-drawer"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Mi perfil"
                 style={{
                     position: 'fixed',
                     top: 0,
@@ -114,13 +120,15 @@ export default function ProfileDrawer({ isOpen, onClose }) {
                     <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 600 }}>Mi perfil</h2>
                     <button
                         onClick={onClose}
+                        aria-label="Cerrar perfil"
                         style={{
                             background: 'none',
                             border: 'none',
                             fontSize: '1.5rem',
                             cursor: 'pointer',
                             color: 'var(--text-secondary)',
-                            padding: '0.25rem'
+                            width: '44px',
+                            height: '44px'
                         }}
                     >
                         ✕

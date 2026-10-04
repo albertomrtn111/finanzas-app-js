@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { latestByAccount } from '@/lib/financialSnapshots';
 
 export default function ProductosPage() {
     const [products, setProducts] = useState([]);
@@ -14,11 +15,7 @@ export default function ProductosPage() {
 
     const assetTypes = ['Fondo indexado', 'ETF', 'Acciones', 'Bonos', 'Criptomonedas', 'Plan de pensiones', 'Inmuebles', 'Otro'];
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
         try {
             const [prodRes, invRes] = await Promise.all([
@@ -31,29 +28,31 @@ export default function ProductosPage() {
             console.error('Error:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadData(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadData]);
 
     // Calculate stats per product
     const productStats = useMemo(() => {
         const stats = {};
 
         // Get latest value per account
-        const latestByAccount = {};
+        const latestRecords = latestByAccount(investments);
         const contribByAccount = {};
 
         investments.forEach(inv => {
-            if (!latestByAccount[inv.account] || new Date(inv.date) > new Date(latestByAccount[inv.account].date)) {
-                latestByAccount[inv.account] = inv;
-            }
             if (!contribByAccount[inv.account]) contribByAccount[inv.account] = 0;
             contribByAccount[inv.account] += parseFloat(inv.contribution);
         });
 
         // Total portfolio value
-        const totalValue = Object.values(latestByAccount).reduce((sum, inv) => sum + parseFloat(inv.current_value), 0);
+        const totalValue = Object.values(latestRecords).reduce((sum, inv) => sum + parseFloat(inv.current_value), 0);
 
         products.forEach(p => {
-            const latest = latestByAccount[p.name];
+            const latest = latestRecords[p.name];
             const contrib = contribByAccount[p.name] || 0;
             const value = latest ? parseFloat(latest.current_value) : 0;
             const gain = value - contrib;
@@ -123,6 +122,9 @@ export default function ProductosPage() {
             if (res.ok) {
                 showMessage('success', 'Eliminado');
                 loadData();
+            } else {
+                const result = await res.json().catch(() => ({}));
+                showMessage('error', result.error || 'No se pudo eliminar el producto');
             }
         } catch (error) {
             showMessage('error', 'Error');

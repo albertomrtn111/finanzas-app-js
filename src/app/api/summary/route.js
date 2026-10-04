@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
+import { badRequest } from '@/lib/apiResponses';
 
 export async function GET(request) {
     try {
@@ -13,23 +14,27 @@ export async function GET(request) {
         const userId = parseInt(session.user.id);
         const { searchParams } = new URL(request.url);
 
-        const year = parseInt(searchParams.get('year') || new Date().getFullYear());
-        // month is 0-indexed in JS Date, but usually passed as 0-11. Let's assume passed as 0-11 for consistency with frontend.
+        const year = Number(searchParams.get('year') ?? new Date().getUTCFullYear());
         const monthParam = searchParams.get('month');
-        const month = monthParam !== null ? parseInt(monthParam) : -1;
+        const month = monthParam !== null ? Number(monthParam) : -1;
         const period = searchParams.get('period') || 'year'; // 'month' or 'year'
+        if (!Number.isInteger(year) || year < 1900 || year > 2100 ||
+            !Number.isInteger(month) || month < -1 || month > 11 ||
+            !['month', 'year'].includes(period) || (period === 'month' && month === -1)) {
+            return badRequest('Periodo inválido');
+        }
 
         // Helpers to determine date ranges
         const getRange = (y, m, p) => {
             if (p === 'year' || m === -1) {
                 return {
-                    start: new Date(y, 0, 1),
-                    end: new Date(y, 11, 31, 23, 59, 59)
+                    start: new Date(Date.UTC(y, 0, 1)),
+                    end: new Date(Date.UTC(y + 1, 0, 1))
                 };
             } else {
                 return {
-                    start: new Date(y, m, 1),
-                    end: new Date(y, m + 1, 0, 23, 59, 59) // Last day of month
+                    start: new Date(Date.UTC(y, m, 1)),
+                    end: new Date(Date.UTC(y, m + 1, 1))
                 };
             }
         };
@@ -42,8 +47,8 @@ export async function GET(request) {
             prevRange = getRange(year - 1, -1, 'year');
         } else {
             // Previous month
-            const prevDate = new Date(year, month - 1); // automatically handles year rollover
-            prevRange = getRange(prevDate.getFullYear(), prevDate.getMonth(), 'month');
+            const prevDate = new Date(Date.UTC(year, month - 1, 1));
+            prevRange = getRange(prevDate.getUTCFullYear(), prevDate.getUTCMonth(), 'month');
         }
 
         // 1. Fetch Aggregated Totals for Current and Previous Period
@@ -58,20 +63,20 @@ export async function GET(request) {
             // Current Totals
             prisma.income.aggregate({
                 _sum: { amount: true },
-                where: { user_id: userId, date: { gte: currentRange.start, lte: currentRange.end } }
+                where: { user_id: userId, date: { gte: currentRange.start, lt: currentRange.end } }
             }),
             prisma.expense.aggregate({
                 _sum: { amount: true },
-                where: { user_id: userId, date: { gte: currentRange.start, lte: currentRange.end } }
+                where: { user_id: userId, date: { gte: currentRange.start, lt: currentRange.end } }
             }),
             // Previous Totals
             prisma.income.aggregate({
                 _sum: { amount: true },
-                where: { user_id: userId, date: { gte: prevRange.start, lte: prevRange.end } }
+                where: { user_id: userId, date: { gte: prevRange.start, lt: prevRange.end } }
             }),
             prisma.expense.aggregate({
                 _sum: { amount: true },
-                where: { user_id: userId, date: { gte: prevRange.start, lte: prevRange.end } }
+                where: { user_id: userId, date: { gte: prevRange.start, lt: prevRange.end } }
             }),
             // Monthly Series (Always for the full requested year to populate the bar chart)
             // GroupBy is not fully supported for date truncation in all Prisma versions efficiently without raw query or post-processing.
@@ -82,25 +87,25 @@ export async function GET(request) {
             // Let's stick to: Fetch ALL for the year (lightweight objects) and aggregate in JS. 
             // It's still better than sending them to frontend.
             prisma.income.findMany({
-                where: { user_id: userId, date: { gte: new Date(year, 0, 1), lte: new Date(year, 11, 31) } },
+                where: { user_id: userId, date: { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) } },
                 select: { date: true, amount: true }
             }),
             prisma.expense.findMany({
-                where: { user_id: userId, date: { gte: new Date(year, 0, 1), lte: new Date(year, 11, 31) } },
+                where: { user_id: userId, date: { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) } },
                 select: { date: true, amount: true }
             }),
             // Categories (Current Period)
             prisma.expense.groupBy({
                 by: ['category'],
                 _sum: { amount: true },
-                where: { user_id: userId, date: { gte: currentRange.start, lte: currentRange.end } },
+                where: { user_id: userId, date: { gte: currentRange.start, lt: currentRange.end } },
                 orderBy: { _sum: { amount: 'desc' } }
             }),
             // Types (Current Period)
             prisma.expense.groupBy({
                 by: ['expense_type'],
                 _sum: { amount: true },
-                where: { user_id: userId, date: { gte: currentRange.start, lte: currentRange.end } }
+                where: { user_id: userId, date: { gte: currentRange.start, lt: currentRange.end } }
             }),
             // Budgets (Total monthly base)
             prisma.budget.aggregate({
@@ -142,11 +147,11 @@ export async function GET(request) {
         }));
 
         monthlySeriesIncomes.forEach(i => {
-            const m = new Date(i.date).getMonth();
+            const m = new Date(i.date).getUTCMonth();
             if (m >= 0 && m < 12) monthSeries[m].income += Number(i.amount);
         });
         monthlySeriesExpenses.forEach(e => {
-            const m = new Date(e.date).getMonth();
+            const m = new Date(e.date).getUTCMonth();
             if (m >= 0 && m < 12) monthSeries[m].expenses += Number(e.amount);
         });
         // Calc savings per month

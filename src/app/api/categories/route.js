@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
+import { badRequest } from '@/lib/apiResponses';
+
+const validType = (type) => type === 'income' || type === 'expense';
+const validName = (name) => typeof name === 'string' && name.trim().length > 0 && name.trim().length <= 100;
 
 // GET - Obtener categorías
 export async function GET(request) {
@@ -14,6 +18,7 @@ export async function GET(request) {
         const userId = parseInt(session.user.id);
         const { searchParams } = new URL(request.url);
         const type = searchParams.get('type') || 'expense';
+        if (!validType(type)) return badRequest('Tipo de categoría inválido');
 
         let categories;
         if (type === 'income') {
@@ -44,11 +49,9 @@ export async function POST(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const { name, type } = await request.json();
+        const { name, type } = await request.json().catch(() => ({}));
 
-        if (!name?.trim()) {
-            return NextResponse.json({ error: 'El nombre es obligatorio' }, { status: 400 });
-        }
+        if (!validType(type) || !validName(name)) return badRequest('Categoría inválida');
 
         let category;
         if (type === 'income') {
@@ -88,44 +91,33 @@ export async function PUT(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const { oldName, newName, type } = await request.json();
+        const { oldName, newName, type } = await request.json().catch(() => ({}));
 
-        if (!newName?.trim()) {
-            return NextResponse.json({ error: 'El nuevo nombre es obligatorio' }, { status: 400 });
-        }
+        if (!validType(type) || !validName(oldName) || !validName(newName)) return badRequest('Categoría inválida');
+        const previous = oldName.trim();
+        const next = newName.trim();
+        const model = type === 'income' ? prisma.incomeCategory : prisma.expenseCategory;
+        const existing = await model.findFirst({ where: { user_id: userId, name: previous } });
+        if (!existing) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
+        if (previous === next) return NextResponse.json({ message: 'Categoría actualizada' });
 
         if (type === 'income') {
-            // Actualizar categoría
-            await prisma.incomeCategory.updateMany({
-                where: { user_id: userId, name: oldName },
-                data: { name: newName.trim() },
-            });
-            // Actualizar ingresos con esta categoría
-            await prisma.income.updateMany({
-                where: { user_id: userId, category: oldName },
-                data: { category: newName.trim() },
+            await prisma.$transaction(async (tx) => {
+                await tx.incomeCategory.update({ where: { id: existing.id }, data: { name: next } });
+                await tx.income.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
             });
         } else {
-            // Actualizar categoría
-            await prisma.expenseCategory.updateMany({
-                where: { user_id: userId, name: oldName },
-                data: { name: newName.trim() },
-            });
-            // Actualizar gastos con esta categoría
-            await prisma.expense.updateMany({
-                where: { user_id: userId, category: oldName },
-                data: { category: newName.trim() },
-            });
-            // Actualizar presupuestos
-            await prisma.budget.updateMany({
-                where: { user_id: userId, category: oldName },
-                data: { category: newName.trim() },
+            await prisma.$transaction(async (tx) => {
+                await tx.expenseCategory.update({ where: { id: existing.id }, data: { name: next } });
+                await tx.expense.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
+                await tx.budget.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
             });
         }
 
         return NextResponse.json({ message: 'Categoría actualizada' });
     } catch (error) {
         console.error('Error actualizando categoría:', error);
+        if (error.code === 'P2002') return badRequest('Esta categoría ya existe');
         return NextResponse.json({ error: 'Error al actualizar' }, { status: 500 });
     }
 }
@@ -142,6 +134,7 @@ export async function DELETE(request) {
         const { searchParams } = new URL(request.url);
         const name = searchParams.get('name');
         const type = searchParams.get('type') || 'expense';
+        if (!validType(type) || !validName(name)) return badRequest('Categoría inválida');
 
         // Verificar si está en uso
         if (type === 'income') {
@@ -154,9 +147,10 @@ export async function DELETE(request) {
                     { status: 400 }
                 );
             }
-            await prisma.incomeCategory.deleteMany({
+            const deleted = await prisma.incomeCategory.deleteMany({
                 where: { user_id: userId, name },
             });
+            if (!deleted.count) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
         } else {
             const inUseExp = await prisma.expense.count({
                 where: { user_id: userId, category: name },
@@ -170,9 +164,10 @@ export async function DELETE(request) {
                     { status: 400 }
                 );
             }
-            await prisma.expenseCategory.deleteMany({
+            const deleted = await prisma.expenseCategory.deleteMany({
                 where: { user_id: userId, name },
             });
+            if (!deleted.count) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
         }
 
         return NextResponse.json({ message: 'Categoría eliminada' });

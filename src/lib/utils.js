@@ -1,4 +1,5 @@
 // Utilidades generales
+import { parseAppDate } from './dateUtils.js';
 
 /**
  * Formatea un número como moneda (euros)
@@ -21,22 +22,26 @@ export function formatPercent(value, decimals = 1) {
  * Formatea una fecha
  */
 export function formatDate(date) {
+    const parsed = parseAppDate(date);
+    if (!parsed) return '—';
     return new Intl.DateTimeFormat('es-ES', {
         year: 'numeric',
         month: 'long',
         day: 'numeric'
-    }).format(new Date(date));
+    }).format(parsed);
 }
 
 /**
  * Formatea fecha corta
  */
 export function formatDateShort(date) {
+    const parsed = parseAppDate(date);
+    if (!parsed) return '—';
     return new Intl.DateTimeFormat('es-ES', {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit'
-    }).format(new Date(date));
+    }).format(parsed);
 }
 
 /**

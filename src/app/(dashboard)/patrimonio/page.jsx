@@ -11,6 +11,7 @@ import CustomTooltip from '@/components/charts/CustomTooltip';
 import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
 import { parseAppDate } from '@/lib/dateUtils';
+import { latestByAccount, totalLatestValue } from '@/lib/financialSnapshots';
 
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
@@ -59,19 +60,7 @@ export default function PatrimonioPage() {
 
     // Calculate investment value per account (latest record)
     const investmentsByAccount = useMemo(() => {
-        if (!Array.isArray(investments)) return {};
-        const accounts = {};
-        investments.forEach((inv) => {
-            if (!inv || !inv.account) return;
-            const invDate = parseAppDate(inv.date);
-            if (!invDate) return;
-
-            const existingDate = accounts[inv.account] ? parseAppDate(accounts[inv.account].date) : null;
-            if (!existingDate || invDate > existingDate) {
-                accounts[inv.account] = inv;
-            }
-        });
-        return accounts;
+        return latestByAccount(investments);
     }, [investments]);
 
     // Calculate contributions per account
@@ -95,19 +84,7 @@ export default function PatrimonioPage() {
 
     // Calculate cash per account (latest record)
     const cashByAccount = useMemo(() => {
-        if (!Array.isArray(cashSnapshots)) return {};
-        const accounts = {};
-        cashSnapshots.forEach((snap) => {
-            if (!snap || !snap.account) return;
-            const snapDate = parseAppDate(snap.date);
-            if (!snapDate) return;
-
-            const existingDate = accounts[snap.account] ? parseAppDate(accounts[snap.account].date) : null;
-            if (!existingDate || snapDate > existingDate) {
-                accounts[snap.account] = snap;
-            }
-        });
-        return accounts;
+        return latestByAccount(cashSnapshots);
     }, [cashSnapshots]);
 
     const totalCash = Object.values(cashByAccount).reduce(
@@ -125,19 +102,8 @@ export default function PatrimonioPage() {
         if (allDates.length === 0) return 0;
 
         const firstMonth = allDates[0];
-        const firstMonthInv = investments.filter(i => {
-            const d = parseAppDate(i?.date);
-            return d && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
-        });
-        const firstMonthCash = cashSnapshots.filter(c => {
-            const d = parseAppDate(c?.date);
-            return d && d.getMonth() === firstMonth.getMonth() && d.getFullYear() === firstMonth.getFullYear();
-        });
-
-        const invValue = firstMonthInv.reduce((sum, i) => sum + safeFloat(i?.current_value), 0);
-        const cashValue = firstMonthCash.reduce((sum, c) => sum + safeFloat(c?.current_value), 0);
-
-        return invValue + cashValue;
+        const cutoff = `${firstMonth.getFullYear()}-${String(firstMonth.getMonth() + 1).padStart(2, '0')}-${String(new Date(firstMonth.getFullYear(), firstMonth.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+        return totalLatestValue(investments, cutoff) + totalLatestValue(cashSnapshots, cutoff);
     }, [investments, cashSnapshots]);
 
     const growthSinceStart = firstPatrimony > 0
@@ -202,20 +168,10 @@ export default function PatrimonioPage() {
     // Calculate YTD if we have January data
     const ytdGrowth = useMemo(() => {
         const currentYear = new Date().getFullYear();
-        const januarySnapshots = cashSnapshots.filter((s) => {
-            const d = parseAppDate(s?.date);
-            return d && d.getFullYear() === currentYear && d.getMonth() === 0;
-        });
-        const januaryInvestments = investments.filter((i) => {
-            const d = parseAppDate(i?.date);
-            return d && d.getFullYear() === currentYear && d.getMonth() === 0;
-        });
-
-        if (januarySnapshots.length === 0 && januaryInvestments.length === 0) return null;
-
-        const janCash = januarySnapshots.reduce((sum, s) => sum + safeFloat(s?.current_value), 0);
-        const janInv = januaryInvestments.reduce((sum, i) => sum + safeFloat(i?.current_value), 0);
-        const janTotal = janCash + janInv;
+        const cutoff = `${currentYear}-01-31`;
+        const hasBaseline = [...investments, ...cashSnapshots].some(record => record.date?.slice(0, 10) <= cutoff);
+        if (!hasBaseline) return null;
+        const janTotal = totalLatestValue(investments, cutoff) + totalLatestValue(cashSnapshots, cutoff);
 
         if (janTotal <= 0) return null;
         const growth = ((totalPatrimonio - janTotal) / janTotal) * 100;
@@ -304,7 +260,7 @@ export default function PatrimonioPage() {
                                     {Math.abs(growthSinceStart).toFixed(1)}%
                                 </span>
                             </div>
-                            <div className="text-muted text-sm">Rentabilidad</div>
+                            <div className="text-muted text-sm">Variación</div>
                         </div>
                     </div>
                 </div>
@@ -331,7 +287,7 @@ export default function PatrimonioPage() {
                 </div>
                 {ytdGrowth !== null && (
                     <div className="kpi-card-enhanced">
-                        <div className="kpi-label">Crecimiento YTD</div>
+                    <div className="kpi-label">Variación YTD</div>
                         <div className={`kpi-value ${ytdGrowth >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
                             <span className={`trend ${ytdGrowth >= 0 ? 'trend-up' : 'trend-down'}`}>
                                 {Math.abs(ytdGrowth).toFixed(1)}%

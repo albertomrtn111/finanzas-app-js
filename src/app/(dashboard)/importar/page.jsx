@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { parseCSV, normalizeImportDate, normalizeImportAmount } from '@/lib/csvImport';
 
 export default function ImportarPage() {
     const [type, setType] = useState('expenses');
@@ -9,55 +10,23 @@ export default function ImportarPage() {
     const [importing, setImporting] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
-    const parseCSV = (text) => {
-        const lines = text.split('\n').filter((l) => l.trim());
-        if (lines.length < 2) return [];
-
-        const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
-        const rows = [];
-
-        for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(',');
-            const row = { _rowNum: i };
-            headers.forEach((h, idx) => {
-                row[h] = values[idx]?.trim() || '';
-            });
-            rows.push(row);
-        }
-
-        return rows;
-    };
-
-    const validateRow = (row, type) => {
+    const validateRow = (row) => {
         const errors = [];
-
-        // Date validation
+        if (row._columnError) errors.push('Número de columnas incorrecto');
         const dateField = row.date || row.fecha;
         if (!dateField) {
             errors.push('Falta fecha');
-        } else {
-            const d = new Date(dateField);
-            if (isNaN(d.getTime())) {
-                errors.push('Fecha inválida');
-            }
+        } else if (!normalizeImportDate(dateField)) {
+            errors.push('Fecha inválida (AAAA-MM-DD o DD/MM/AAAA)');
         }
-
-        // Amount validation
         const amountField = row.amount || row.importe;
         if (!amountField) {
             errors.push('Falta importe');
-        } else {
-            const amount = parseFloat(amountField);
-            if (isNaN(amount) || amount <= 0) {
-                errors.push('Importe inválido');
-            }
+        } else if (normalizeImportAmount(amountField) === null) {
+            errors.push('Importe inválido');
         }
-
-        // Category validation
         const categoryField = row.category || row.categoria;
-        if (!categoryField) {
-            errors.push('Falta categoría');
-        }
+        if (!categoryField || categoryField.length > 100) errors.push('Categoría inválida');
 
         return errors;
     };
@@ -65,22 +34,29 @@ export default function ImportarPage() {
     const handleFileChange = (e) => {
         const selectedFile = e.target.files?.[0];
         if (!selectedFile) return;
+        if (selectedFile.size > 5 * 1024 * 1024) {
+            showMessage('error', 'El archivo no puede superar 5 MB');
+            e.target.value = '';
+            return;
+        }
 
         setFile(selectedFile);
         const reader = new FileReader();
         reader.onload = (event) => {
-            const text = event.target?.result;
-            const rows = parseCSV(text);
-
-            // Add validation to each row
-            const validatedRows = rows.map(row => ({
-                ...row,
-                _errors: validateRow(row, type),
-                _isValid: validateRow(row, type).length === 0
-            }));
-
-            setParsedRows(validatedRows);
+            try {
+                const rows = parseCSV(event.target?.result);
+                if (!rows.length) throw new Error('El archivo no contiene registros');
+                setParsedRows(rows.map(row => {
+                    const errors = validateRow(row);
+                    return { ...row, _errors: errors, _isValid: errors.length === 0 };
+                }));
+                setMessage({ type: '', text: '' });
+            } catch (error) {
+                setParsedRows([]);
+                showMessage('error', error.message || 'No se pudo leer el archivo');
+            }
         };
+        reader.onerror = () => showMessage('error', 'No se pudo leer el archivo');
         reader.readAsText(selectedFile);
     };
 
@@ -91,7 +67,7 @@ export default function ImportarPage() {
         const validRows = parsedRows.filter(r => r._isValid);
         const invalidRows = parsedRows.filter(r => !r._isValid);
         const totalAmount = validRows.reduce((sum, r) => {
-            const amount = parseFloat(r.amount || r.importe || 0);
+            const amount = normalizeImportAmount(r.amount || r.importe) || 0;
             return sum + amount;
         }, 0);
 
@@ -120,49 +96,53 @@ export default function ImportarPage() {
         try {
             let success = 0;
             let errors = 0;
+            const failedRows = [];
 
             for (const row of validRows) {
                 const endpoint = type === 'expenses' ? '/api/expenses' : '/api/income';
+                const category = row.category || row.categoria;
 
                 const data =
                     type === 'expenses'
                         ? {
-                            date: row.date || row.fecha,
-                            amount: parseFloat(row.amount || row.importe || '0'),
-                            category: row.category || row.categoria || 'Sin categoría',
+                            date: normalizeImportDate(row.date || row.fecha),
+                            amount: normalizeImportAmount(row.amount || row.importe),
+                            category,
                             subcategory: row.subcategory || row.subcategoria,
                             payment_method: row.payment_method || row.metodo_pago || 'Tarjeta',
                             expense_type: row.expense_type || row.tipo || 'Variable',
                             notes: row.notes || row.notas,
                         }
                         : {
-                            date: row.date || row.fecha,
-                            amount: parseFloat(row.amount || row.importe || '0'),
+                            date: normalizeImportDate(row.date || row.fecha),
+                            amount: normalizeImportAmount(row.amount || row.importe),
                             source: row.source || row.fuente,
-                            category: row.category || row.categoria || 'Sin categoría',
+                            category,
                             notes: row.notes || row.notas,
                         };
 
-                // Create category if not exists
-                await fetch('/api/categories', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: data.category, type: type === 'expenses' ? 'expense' : 'income' }),
-                });
+                try {
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data),
+                    });
 
-                const res = await fetch(endpoint, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data),
-                });
-
-                if (res.ok) success++;
-                else errors++;
+                    if (res.ok) success++;
+                    else {
+                        errors++;
+                        const result = await res.json().catch(() => ({}));
+                        failedRows.push({ ...row, _errors: [result.error || 'Error al guardar'], _isValid: true, _saveError: true });
+                    }
+                } catch {
+                    errors++;
+                    failedRows.push({ ...row, _errors: ['No se pudo confirmar el guardado; revisa el registro antes de reimportar esta fila'], _isValid: false });
+                }
             }
 
-            showMessage('success', `Importación completada: ${success} registros importados, ${errors} errores`);
-            setFile(null);
-            setParsedRows([]);
+            showMessage(errors ? 'error' : 'success', `Importación completada: ${success} registros importados, ${errors} errores`);
+            setParsedRows([...parsedRows.filter(row => !row._isValid), ...failedRows]);
+            if (!errors && parsedRows.every(row => row._isValid)) setFile(null);
         } catch (error) {
             console.error('Error:', error);
             showMessage('error', 'Error al procesar el archivo');
@@ -270,7 +250,7 @@ export default function ImportarPage() {
                                         {parsedRows.map((row, idx) => (
                                             <tr key={idx} className={row._isValid ? 'row-valid' : 'row-error'}>
                                                 <td>
-                                                    {row._isValid ? (
+                                                    {row._isValid && !row._saveError ? (
                                                         <span className="badge badge-success">✓</span>
                                                     ) : (
                                                         <div>

@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { localDateKey, parseAppDate } from '@/lib/dateUtils';
+import { latestByAccount, totalLatestValue } from '@/lib/financialSnapshots';
 
 export default function EfectivoPage() {
     const [snapshots, setSnapshots] = useState([]);
@@ -11,7 +13,7 @@ export default function EfectivoPage() {
     const [editingId, setEditingId] = useState(null);
 
     const initialFormState = {
-        date: new Date().toISOString().split('T')[0],
+        date: localDateKey(),
         account: '',
         current_value: '',
         notes: '',
@@ -19,11 +21,7 @@ export default function EfectivoPage() {
 
     const [form, setForm] = useState(initialFormState);
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
         try {
             const [cashRes, invRes] = await Promise.all([
@@ -35,8 +33,8 @@ export default function EfectivoPage() {
                 const cashData = Array.isArray(data) ? data : [];
                 setSnapshots(cashData);
                 // Only set default if NOT editing and no account selected
-                if (cashData.length > 0 && !form.account && !editingId) {
-                    setForm((f) => ({ ...f, account: cashData[0].account }));
+                if (cashData.length > 0) {
+                    setForm((f) => f.account ? f : ({ ...f, account: cashData[0].account }));
                 }
             }
             if (invRes.ok) {
@@ -47,7 +45,12 @@ export default function EfectivoPage() {
             console.error('Error:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadData(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadData]);
 
     const showMessage = (type, text) => {
         setMessage({ type, text });
@@ -76,13 +79,7 @@ export default function EfectivoPage() {
 
     // Calculate current cash total (latest snapshot per account)
     const cashByAccount = useMemo(() => {
-        const accounts = {};
-        snapshots.forEach((snap) => {
-            if (!accounts[snap.account] || new Date(snap.date) > new Date(accounts[snap.account].date)) {
-                accounts[snap.account] = snap;
-            }
-        });
-        return accounts;
+        return latestByAccount(snapshots);
     }, [snapshots]);
 
     const totalCash = useMemo(() => {
@@ -92,22 +89,8 @@ export default function EfectivoPage() {
     // Previous month cash for trend
     const previousMonthCash = useMemo(() => {
         const now = new Date();
-        const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-        const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-
-        const prevSnapshots = snapshots.filter(s => {
-            const d = new Date(s.date);
-            return d.getMonth() === prevMonth && d.getFullYear() === prevYear;
-        });
-
-        const accounts = {};
-        prevSnapshots.forEach((snap) => {
-            if (!accounts[snap.account] || new Date(snap.date) > new Date(accounts[snap.account].date)) {
-                accounts[snap.account] = snap;
-            }
-        });
-
-        return Object.values(accounts).reduce((sum, snap) => sum + parseFloat(snap.current_value), 0);
+        const cutoff = localDateKey(new Date(now.getFullYear(), now.getMonth(), 0));
+        return totalLatestValue(snapshots, cutoff);
     }, [snapshots]);
 
     const cashVariation = previousMonthCash > 0
@@ -116,13 +99,7 @@ export default function EfectivoPage() {
 
     // Calculate total patrimony for percentage
     const totalInvestments = useMemo(() => {
-        const accounts = {};
-        investments.forEach((inv) => {
-            if (!accounts[inv.account] || new Date(inv.date) > new Date(accounts[inv.account].date)) {
-                accounts[inv.account] = inv;
-            }
-        });
-        return Object.values(accounts).reduce((sum, inv) => sum + parseFloat(inv.current_value), 0);
+        return totalLatestValue(investments);
     }, [investments]);
 
     const totalPatrimonio = totalCash + totalInvestments;
@@ -148,7 +125,7 @@ export default function EfectivoPage() {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.account || !form.current_value) {
+        if (!form.account || form.current_value === '' || !Number.isFinite(Number(form.current_value))) {
             showMessage('error', 'Completa cuenta y saldo');
             return;
         }
@@ -391,7 +368,7 @@ export default function EfectivoPage() {
                                             </div>
                                             <div className="flex-between text-sm">
                                                 <span className="text-muted">
-                                                    {new Date(s.date).toLocaleDateString('es-ES')}
+                                                    {parseAppDate(s.date)?.toLocaleDateString('es-ES') || s.date}
                                                 </span>
                                                 {trend && (
                                                     <span className={`trend ${trend.isUp ? 'trend-up' : 'trend-down'}`}>

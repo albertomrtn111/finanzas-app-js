@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
+import { parseFinancialRecord, parseId, parsePagination } from '@/lib/apiValidation';
+import { badRequest } from '@/lib/apiResponses';
 
 // GET - Listar todos los ingresos del usuario
 export async function GET(request) {
@@ -15,14 +17,13 @@ export async function GET(request) {
         const { searchParams } = new URL(request.url);
 
         // Pagination params
-        const limit = parseInt(searchParams.get('limit') || '50');
-        const offset = parseInt(searchParams.get('offset') || '0');
+        const { value: pagination, error: paginationError } = parsePagination(searchParams);
+        if (paginationError) return badRequest(paginationError);
 
         const incomes = await prisma.income.findMany({
             where: { user_id: userId },
             orderBy: [{ date: 'desc' }, { id: 'desc' }],
-            take: limit,
-            skip: offset,
+            ...pagination,
         });
 
         return NextResponse.json(incomes);
@@ -41,18 +42,17 @@ export async function POST(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const data = await request.json();
+        const data = await request.json().catch(() => null);
+        const { value, error } = parseFinancialRecord('income', data);
+        if (error) return badRequest(error);
 
-        const income = await prisma.income.create({
-            data: {
-                user_id: userId,
-                date: new Date(data.date),
-                amount: parseFloat(data.amount),
-                source: data.source || null,
-                category: data.category,
-                notes: data.notes || null,
-                created_at: new Date(),
-            },
+        const income = await prisma.$transaction(async (tx) => {
+            await tx.incomeCategory.upsert({
+                where: { user_id_name: { user_id: userId, name: value.category } },
+                create: { user_id: userId, name: value.category, created_at: new Date() },
+                update: {},
+            });
+            return tx.income.create({ data: { user_id: userId, ...value, created_at: new Date() } });
         });
 
         return NextResponse.json(income);
@@ -71,21 +71,25 @@ export async function PUT(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const data = await request.json();
+        const data = await request.json().catch(() => null);
+        const id = parseId(data?.id);
+        if (!id) return badRequest('Identificador inválido');
+        const { value, error } = parseFinancialRecord('income', data);
+        if (error) return badRequest(error);
 
-        const income = await prisma.income.update({
-            where: { id: parseInt(data.id) },
-            data: {
-                date: new Date(data.date),
-                amount: parseFloat(data.amount),
-                source: data.source || null,
-                category: data.category,
-                notes: data.notes || null,
-            },
+        const income = await prisma.$transaction(async (tx) => {
+            const updated = await tx.income.updateMany({ where: { id, user_id: userId }, data: value });
+            if (!updated.count) return null;
+            await tx.incomeCategory.upsert({
+                where: { user_id_name: { user_id: userId, name: value.category } },
+                create: { user_id: userId, name: value.category, created_at: new Date() },
+                update: {},
+            });
+            return tx.income.findUnique({ where: { id } });
         });
 
-        if (income.user_id !== userId) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        if (!income) {
+            return NextResponse.json({ error: 'Ingreso no encontrado' }, { status: 404 });
         }
 
         return NextResponse.json(income);
@@ -105,17 +109,13 @@ export async function DELETE(request) {
 
         const userId = parseInt(session.user.id);
         const { searchParams } = new URL(request.url);
-        const id = parseInt(searchParams.get('id'));
+        const id = parseId(searchParams.get('id'));
+        if (!id) return badRequest('Identificador inválido');
 
-        const income = await prisma.income.findFirst({
-            where: { id, user_id: userId },
-        });
-
-        if (!income) {
+        const deleted = await prisma.income.deleteMany({ where: { id, user_id: userId } });
+        if (!deleted.count) {
             return NextResponse.json({ error: 'Ingreso no encontrado' }, { status: 404 });
         }
-
-        await prisma.income.delete({ where: { id } });
 
         return NextResponse.json({ message: 'Ingreso eliminado' });
     } catch (error) {

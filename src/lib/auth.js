@@ -5,10 +5,10 @@ import prisma from './db';
 
 export const authOptions = {
     providers: [
-        GoogleProvider({
-            clientId: process.env.GOOGLE_CLIENT_ID ?? '',
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
-        }),
+        ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? [GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        })] : []),
         CredentialsProvider({
             name: 'credentials',
             credentials: {
@@ -17,7 +17,7 @@ export const authOptions = {
             },
             async authorize(credentials) {
                 if (!credentials?.email || !credentials?.password) {
-                    throw new Error('Email y contraseña son obligatorios');
+                    throw new Error('Credenciales incorrectas');
                 }
 
                 const user = await prisma.user.findUnique({
@@ -25,18 +25,18 @@ export const authOptions = {
                 });
 
                 if (!user) {
-                    throw new Error('No existe una cuenta con este email');
+                    throw new Error('Credenciales incorrectas');
                 }
 
                 // Check if this is a Google-only user (no password)
                 if (!user.password_hash) {
-                    throw new Error('Esta cuenta usa inicio de sesión con Google');
+                    throw new Error('Credenciales incorrectas');
                 }
 
                 const isValid = await bcrypt.compare(credentials.password, user.password_hash);
 
                 if (!isValid) {
-                    throw new Error('Contraseña incorrecta');
+                    throw new Error('Credenciales incorrectas');
                 }
 
                 // Update last login
@@ -49,6 +49,7 @@ export const authOptions = {
                     id: user.id.toString(),
                     email: user.email,
                     name: user.name || user.email.split('@')[0], // Fallback to email prefix
+                    onboardingStep: user.onboarding_step,
                 };
             }
         })
@@ -61,9 +62,12 @@ export const authOptions = {
             // Handle Google OAuth - find or create user
             if (account?.provider === 'google') {
                 try {
-                    let dbUser = await prisma.user.findUnique({
-                        where: { email: user.email }
-                    });
+                    if (!user.email || profile?.email_verified !== true) return false;
+                    const email = user.email.toLowerCase().trim();
+                    let dbUser = await prisma.user.findUnique({ where: { google_sub: account.providerAccountId } });
+                    if (dbUser && dbUser.email !== email) return false;
+                    if (!dbUser) dbUser = await prisma.user.findUnique({ where: { email } });
+                    if (dbUser?.google_sub && dbUser.google_sub !== account.providerAccountId) return false;
 
                     if (!dbUser) {
                         // Create new user for Google OAuth
@@ -75,7 +79,7 @@ export const authOptions = {
 
                         dbUser = await prisma.user.create({
                             data: {
-                                email: user.email,
+                                email,
                                 name: userName,
                                 google_sub: account.providerAccountId,
                                 password_hash: null, // OAuth users don't have password
@@ -84,7 +88,6 @@ export const authOptions = {
                                 last_login_at: new Date(),
                             }
                         });
-                        console.log('Created new Google user:', dbUser.id);
                     } else {
                         // User exists - update google_sub if not set, update last_login
                         // Only update name if it's currently null/empty
@@ -132,8 +135,12 @@ export const authOptions = {
             }
 
             // Handle session update (e.g., after profile edit)
-            if (trigger === 'update' && session) {
-                if (session.name) token.name = session.name;
+            if (trigger === 'update' && session && token.id) {
+                const dbUser = await prisma.user.findUnique({ where: { id: Number(token.id) }, select: { name: true, onboarding_step: true } });
+                if (dbUser) {
+                    token.name = dbUser.name;
+                    token.onboardingStep = dbUser.onboarding_step;
+                }
             }
 
             return token;

@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { localDateKey, parseAppDate } from '@/lib/dateUtils';
+import { latestByAccount, totalLatestValue } from '@/lib/financialSnapshots';
 
 export default function InversionesRegistroPage() {
     const [products, setProducts] = useState([]);
@@ -12,7 +14,7 @@ export default function InversionesRegistroPage() {
     const [editingId, setEditingId] = useState(null);
 
     const initialFormState = {
-        date: new Date().toISOString().split('T')[0],
+        date: localDateKey(),
         account: '',
         asset_type: '',
         movType: 'entrada',
@@ -23,11 +25,7 @@ export default function InversionesRegistroPage() {
 
     const [form, setForm] = useState(initialFormState);
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
         try {
             const [prodRes, invRes] = await Promise.all([
@@ -38,8 +36,8 @@ export default function InversionesRegistroPage() {
                 const prods = await prodRes.json();
                 setProducts(prods);
                 // Only set default if NOT editing and no account selected
-                if (!editingId && !form.account && prods.length > 0) {
-                    setForm((f) => ({ ...f, account: prods[0].name, asset_type: prods[0].asset_type }));
+                if (prods.length > 0) {
+                    setForm((f) => f.account ? f : ({ ...f, account: prods[0].name, asset_type: prods[0].asset_type }));
                 }
             }
             if (invRes.ok) setInvestments(await invRes.json());
@@ -47,7 +45,12 @@ export default function InversionesRegistroPage() {
             console.error('Error:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadData(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadData]);
 
     const showMessage = (type, text) => {
         setMessage({ type, text });
@@ -98,19 +101,12 @@ export default function InversionesRegistroPage() {
         if (productInvestments.length === 0) return null;
 
         const totalContrib = productInvestments.reduce((sum, i) => sum + parseFloat(i.contribution), 0);
-        const currentValue = productInvestments.length > 0
-            ? parseFloat(productInvestments[productInvestments.length - 1].current_value)
-            : 0;
+        const currentValue = Number(latestByAccount(productInvestments)[form.account]?.current_value || 0);
         const gain = currentValue - totalContrib;
         const returnPct = totalContrib !== 0 ? (gain / totalContrib) * 100 : 0;
 
         // Calculate total portfolio value
-        const accountData = {};
-        investments.forEach((inv) => {
-            if (!accountData[inv.account]) accountData[inv.account] = { currentValue: 0 };
-            accountData[inv.account].currentValue = parseFloat(inv.current_value);
-        });
-        const totalPortfolio = Object.values(accountData).reduce((sum, a) => sum + a.currentValue, 0);
+        const totalPortfolio = totalLatestValue(investments);
         const weight = totalPortfolio > 0 ? (currentValue / totalPortfolio) * 100 : 0;
 
         return { totalContrib, currentValue, gain, returnPct, weight, totalPortfolio };
@@ -147,8 +143,10 @@ export default function InversionesRegistroPage() {
 
     const handleSubmitClick = (e) => {
         e.preventDefault();
-        if (!form.account || !form.amount) {
-            showMessage('error', 'Completa todos los campos obligatorios');
+        if (!form.account || !form.asset_type || form.current_value === '' ||
+            !Number.isFinite(Number(form.amount)) || Number(form.amount) <= 0 ||
+            !Number.isFinite(Number(form.current_value)) || Number(form.current_value) < 0) {
+            showMessage('error', 'Indica un producto, un movimiento positivo y un valor actual válido');
             return;
         }
         setShowConfirm(true);
@@ -185,7 +183,8 @@ export default function InversionesRegistroPage() {
                 cancelEdit();
                 loadData();
             } else {
-                showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'}`);
+                const result = await res.json().catch(() => ({}));
+                showMessage('error', result.error || `Error al ${editingId ? 'actualizar' : 'guardar'}`);
             }
         } catch (error) {
             showMessage('error', 'Error de conexión');
@@ -201,6 +200,9 @@ export default function InversionesRegistroPage() {
                 showMessage('success', 'Eliminado');
                 if (editingId === id) cancelEdit();
                 loadData();
+            } else {
+                const result = await res.json().catch(() => ({}));
+                showMessage('error', result.error || 'No se pudo eliminar');
             }
         } catch (error) {
             showMessage('error', 'Error');
@@ -402,7 +404,7 @@ export default function InversionesRegistroPage() {
                                                 </div>
                                                 <div className="flex-between text-sm">
                                                     <span className="text-muted">
-                                                        {new Date(inv.date).toLocaleDateString('es-ES')}
+                                                        {parseAppDate(inv.date)?.toLocaleDateString('es-ES') || inv.date}
                                                     </span>
                                                     <span className={parseFloat(inv.contribution) >= 0 ? 'text-success' : 'text-danger'}>
                                                         {formatCurrency(inv.contribution)}

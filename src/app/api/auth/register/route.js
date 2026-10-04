@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request) {
     try {
-        const body = await request.json();
+        const body = await request.json().catch(() => ({}));
         const { email, password, name } = body;
 
         // Validate required fields
@@ -30,18 +30,18 @@ export async function POST(request) {
         }
 
         // Validate password strength
-        if (password.length < 8) {
+        if (password.length < 8 || password.length > 72) {
             return NextResponse.json(
-                { error: 'La contraseña debe tener al menos 8 caracteres' },
+                { error: 'La contraseña debe tener entre 8 y 72 caracteres' },
                 { status: 400 }
             );
         }
 
         // Validate email format
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
+        if (!emailRegex.test(email.trim()) || email.trim().length > 255 || name.trim().length > 100) {
             return NextResponse.json(
-                { error: 'Formato de email inválido' },
+                { error: 'Email o nombre inválido' },
                 { status: 400 }
             );
         }

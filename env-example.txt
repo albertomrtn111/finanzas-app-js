@@ -12,3 +12,7 @@ DATABASE_URL="postgresql://usuario:password@localhost:5432/finanzas?schema=publi
 # NextAuth.js
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=genera-un-secret-aleatorio-aqui-con-openssl-rand-base64-32
+
+# Opcional: habilita el inicio de sesión con Google si defines ambos valores
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=

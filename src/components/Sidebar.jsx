@@ -39,7 +39,8 @@ export default function Sidebar() {
 
     // Close drawer on route change
     useEffect(() => {
-        setIsOpen(false);
+        const timer = setTimeout(() => setIsOpen(false), 0);
+        return () => clearTimeout(timer);
     }, [pathname]);
 
     // Close drawer on Escape key

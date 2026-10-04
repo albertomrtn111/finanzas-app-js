@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function CategoryStep({ type = 'expense' }) {
     const [categories, setCategories] = useState([]);
@@ -13,11 +13,7 @@ export default function CategoryStep({ type = 'expense' }) {
     const title = isExpense ? 'Categorías de gasto' : 'Categorías de ingreso';
     const placeholder = isExpense ? 'Ej: Alimentación, Transporte, Ocio...' : 'Ej: Nómina, Freelance, Dividendos...';
 
-    useEffect(() => {
-        loadCategories();
-    }, [type]);
-
-    const loadCategories = async () => {
+    const loadCategories = useCallback(async () => {
         setLoading(true);
         try {
             const res = await fetch(`/api/categories?type=${type}`);
@@ -29,7 +25,12 @@ export default function CategoryStep({ type = 'expense' }) {
             console.error('Error loading categories:', error);
         }
         setLoading(false);
-    };
+    }, [type]);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadCategories(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadCategories]);
 
     const handleAdd = async (e) => {
         e.preventDefault();

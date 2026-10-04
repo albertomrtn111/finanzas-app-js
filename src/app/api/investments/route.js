@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
+import { parseFinancialRecord, parseId } from '@/lib/apiValidation';
+import { badRequest } from '@/lib/apiResponses';
 
 // GET - Listar inversiones
 export async function GET(request) {
@@ -34,17 +36,14 @@ export async function POST(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const data = await request.json();
+        const data = await request.json().catch(() => null);
+        const { value, error } = parseFinancialRecord('investment', data);
+        if (error) return badRequest(error);
 
         const investment = await prisma.investment.create({
             data: {
                 user_id: userId,
-                date: new Date(data.date),
-                account: data.account,
-                asset_type: data.asset_type,
-                contribution: parseFloat(data.contribution),
-                current_value: parseFloat(data.current_value),
-                notes: data.notes || null,
+                ...value,
                 created_at: new Date(),
             },
         });
@@ -65,30 +64,20 @@ export async function PUT(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const data = await request.json();
+        const data = await request.json().catch(() => null);
+        const id = parseId(data?.id);
+        if (!id) return badRequest('Identificador inválido');
+        const { value, error } = parseFinancialRecord('investment', data);
+        if (error) return badRequest(error);
 
-        // Verificar propiedad
-        const existing = await prisma.investment.findFirst({
-            where: { id: parseInt(data.id), user_id: userId },
+        const updated = await prisma.investment.updateMany({
+            where: { id, user_id: userId }, data: value,
         });
-
-        if (!existing) {
+        if (!updated.count) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
 
-        const investment = await prisma.investment.update({
-            where: { id: parseInt(data.id) },
-            data: {
-                date: new Date(data.date),
-                account: data.account,
-                asset_type: data.asset_type,
-                contribution: parseFloat(data.contribution),
-                current_value: parseFloat(data.current_value),
-                notes: data.notes || null,
-            },
-        });
-
-        return NextResponse.json(investment);
+        return NextResponse.json(await prisma.investment.findUnique({ where: { id } }));
     } catch (error) {
         console.error('Error actualizando inversión:', error);
         return NextResponse.json({ error: 'Error al actualizar' }, { status: 500 });
@@ -105,17 +94,13 @@ export async function DELETE(request) {
 
         const userId = parseInt(session.user.id);
         const { searchParams } = new URL(request.url);
-        const id = parseInt(searchParams.get('id'));
+        const id = parseId(searchParams.get('id'));
+        if (!id) return badRequest('Identificador inválido');
 
-        const investment = await prisma.investment.findFirst({
-            where: { id, user_id: userId },
-        });
-
-        if (!investment) {
+        const deleted = await prisma.investment.deleteMany({ where: { id, user_id: userId } });
+        if (!deleted.count) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
-
-        await prisma.investment.delete({ where: { id } });
 
         return NextResponse.json({ message: 'Inversión eliminada' });
     } catch (error) {

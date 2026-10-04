@@ -9,7 +9,7 @@ import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
 import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
-import { parseAppDate } from '@/lib/dateUtils';
+import { parseAppDate, localDateKey } from '@/lib/dateUtils';
 
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
@@ -50,7 +50,7 @@ export default function InversionesResumenPage() {
         if (a.account !== b.account) return a.account.localeCompare(b.account);
         const dateA = parseAppDate(a.date) || new Date(0);
         const dateB = parseAppDate(b.date) || new Date(0);
-        return dateA - dateB;
+        return dateA - dateB || a.id - b.id;
     });
 
     // Calculate cumulative contributions per account
@@ -124,7 +124,7 @@ export default function InversionesResumenPage() {
     investments.forEach((inv) => {
         const d = parseAppDate(inv.date);
         if (!d) return;
-        const dateKey = d.toISOString().split('T')[0];
+        const dateKey = localDateKey(d);
 
         if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
         eventsByDate[dateKey].push(inv);
@@ -139,7 +139,7 @@ export default function InversionesResumenPage() {
     const evolutionWithAccumulation = [];
 
     sortedDates.forEach((date) => {
-        const daysEvents = eventsByDate[date];
+        const daysEvents = eventsByDate[date].sort((a, b) => a.id - b.id);
 
         daysEvents.forEach((inv) => {
             // Add contribution (delta) to running total

@@ -25,8 +25,8 @@ export default function RegisterPage() {
             return;
         }
 
-        if (password.length < 8) {
-            setError('La contraseña debe tener al menos 8 caracteres');
+        if (password.length < 8 || password.length > 72) {
+            setError('La contraseña debe tener entre 8 y 72 caracteres');
             return;
         }
 
@@ -103,6 +103,8 @@ export default function RegisterPage() {
                             placeholder="Tu nombre"
                             value={name}
                             onChange={(e) => setName(e.target.value)}
+                            maxLength={100}
+                            autoComplete="name"
                             required
                         />
                     </div>
@@ -118,6 +120,8 @@ export default function RegisterPage() {
                             placeholder="tu@email.com"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
+                            maxLength={255}
+                            autoComplete="email"
                             required
                         />
                     </div>
@@ -130,9 +134,11 @@ export default function RegisterPage() {
                             id="password"
                             type="password"
                             className="form-input"
-                            placeholder="Mínimo 6 caracteres"
+                            placeholder="Entre 8 y 72 caracteres"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
+                            maxLength={72}
+                            autoComplete="new-password"
                             required
                         />
                     </div>
@@ -148,6 +154,8 @@ export default function RegisterPage() {
                             placeholder="Repite tu contraseña"
                             value={password2}
                             onChange={(e) => setPassword2(e.target.value)}
+                            maxLength={72}
+                            autoComplete="new-password"
                             required
                         />
                     </div>

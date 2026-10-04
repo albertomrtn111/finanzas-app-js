@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
+import { parseFinancialRecord, parseId, parsePagination } from '@/lib/apiValidation';
+import { badRequest } from '@/lib/apiResponses';
 
 // GET - Listar todos los gastos del usuario
 export async function GET(request) {
@@ -15,14 +17,13 @@ export async function GET(request) {
         const { searchParams } = new URL(request.url);
 
         // Pagination params
-        const limit = parseInt(searchParams.get('limit') || '50');
-        const offset = parseInt(searchParams.get('offset') || '0');
+        const { value: pagination, error: paginationError } = parsePagination(searchParams);
+        if (paginationError) return badRequest(paginationError);
 
         const expenses = await prisma.expense.findMany({
             where: { user_id: userId },
             orderBy: [{ date: 'desc' }, { id: 'desc' }],
-            take: limit,
-            skip: offset,
+            ...pagination,
         });
 
         // Get total count for pagination info if needed, or just return list
@@ -44,20 +45,17 @@ export async function POST(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const data = await request.json();
+        const data = await request.json().catch(() => null);
+        const { value, error } = parseFinancialRecord('expense', data);
+        if (error) return badRequest(error);
 
-        const expense = await prisma.expense.create({
-            data: {
-                user_id: userId,
-                date: new Date(data.date),
-                amount: parseFloat(data.amount),
-                category: data.category,
-                subcategory: data.subcategory || null,
-                payment_method: data.payment_method || null,
-                expense_type: data.expense_type || null,
-                notes: data.notes || null,
-                created_at: new Date(),
-            },
+        const expense = await prisma.$transaction(async (tx) => {
+            await tx.expenseCategory.upsert({
+                where: { user_id_name: { user_id: userId, name: value.category } },
+                create: { user_id: userId, name: value.category, created_at: new Date() },
+                update: {},
+            });
+            return tx.expense.create({ data: { user_id: userId, ...value, created_at: new Date() } });
         });
 
         return NextResponse.json(expense);
@@ -76,26 +74,25 @@ export async function PUT(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const data = await request.json();
+        const data = await request.json().catch(() => null);
+        const id = parseId(data?.id);
+        if (!id) return badRequest('Identificador inválido');
+        const { value, error } = parseFinancialRecord('expense', data);
+        if (error) return badRequest(error);
 
-        const expense = await prisma.expense.update({
-            where: {
-                id: parseInt(data.id),
-            },
-            data: {
-                date: new Date(data.date),
-                amount: parseFloat(data.amount),
-                category: data.category,
-                subcategory: data.subcategory || null,
-                payment_method: data.payment_method || null,
-                expense_type: data.expense_type || null,
-                notes: data.notes || null,
-            },
+        const expense = await prisma.$transaction(async (tx) => {
+            const updated = await tx.expense.updateMany({ where: { id, user_id: userId }, data: value });
+            if (!updated.count) return null;
+            await tx.expenseCategory.upsert({
+                where: { user_id_name: { user_id: userId, name: value.category } },
+                create: { user_id: userId, name: value.category, created_at: new Date() },
+                update: {},
+            });
+            return tx.expense.findUnique({ where: { id } });
         });
 
-        // Verificar que pertenece al usuario
-        if (expense.user_id !== userId) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+        if (!expense) {
+            return NextResponse.json({ error: 'Gasto no encontrado' }, { status: 404 });
         }
 
         return NextResponse.json(expense);
@@ -115,20 +112,14 @@ export async function DELETE(request) {
 
         const userId = parseInt(session.user.id);
         const { searchParams } = new URL(request.url);
-        const id = parseInt(searchParams.get('id'));
+        const id = parseId(searchParams.get('id'));
+        if (!id) return badRequest('Identificador inválido');
 
         // Verificar que el gasto pertenece al usuario
-        const expense = await prisma.expense.findFirst({
-            where: { id, user_id: userId },
-        });
-
-        if (!expense) {
+        const deleted = await prisma.expense.deleteMany({ where: { id, user_id: userId } });
+        if (!deleted.count) {
             return NextResponse.json({ error: 'Gasto no encontrado' }, { status: 404 });
         }
-
-        await prisma.expense.delete({
-            where: { id },
-        });
 
         return NextResponse.json({ message: 'Gasto eliminado' });
     } catch (error) {

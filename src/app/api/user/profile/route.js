@@ -12,7 +12,7 @@ export async function PATCH(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const { name } = await request.json();
+        const { name } = await request.json().catch(() => ({}));
 
         // Validation
         if (!name || typeof name !== 'string') {
@@ -59,7 +59,6 @@ export async function GET(request) {
                 email: true,
                 name: true,
                 google_sub: true,
-                password_hash: true
             }
         });
 

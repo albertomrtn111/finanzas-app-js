@@ -520,8 +520,8 @@ textarea.form-input {
 }
 
 .mobile-profile-btn {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--primary), var(--primary-dark, #2563eb));
   display: flex;
@@ -1928,8 +1928,8 @@ textarea.form-input {
 }
 
 .modal-close {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: var(--bg-tertiary);
   border: none;
@@ -1943,6 +1943,32 @@ textarea.form-input {
 
 .modal-close:hover {
   background: var(--border-color);
+}
+
+.home-period-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.home-period-summary > div {
+  min-width: 0;
+  padding: 0.75rem;
+  border-radius: var(--border-radius-sm);
+  background: var(--bg-secondary);
+}
+
+.home-period-summary span,
+.home-period-summary strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.home-period-summary span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
 }
 
 .modal-body {

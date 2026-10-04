@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { signIn } from 'next-auth/react';
+import { useEffect, useState } from 'react';
+import { getProviders, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -11,7 +11,16 @@ export default function LoginPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [googleLoading, setGoogleLoading] = useState(false);
+    const [googleAvailable, setGoogleAvailable] = useState(false);
     const router = useRouter();
+
+    useEffect(() => {
+        let active = true;
+        getProviders().then(providers => {
+            if (active) setGoogleAvailable(Boolean(providers?.google));
+        }).catch(() => {});
+        return () => { active = false; };
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -70,6 +79,7 @@ export default function LoginPage() {
                             placeholder="tu@email.com"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
+                            autoComplete="email"
                             required
                         />
                     </div>
@@ -85,6 +95,7 @@ export default function LoginPage() {
                             placeholder="••••••••"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
+                            autoComplete="current-password"
                             required
                         />
                     </div>
@@ -106,7 +117,7 @@ export default function LoginPage() {
                     </button>
                 </form>
 
-                <div className="auth-divider">
+                {googleAvailable && <><div className="auth-divider">
                     <span>o continúa con</span>
                 </div>
 
@@ -132,7 +143,7 @@ export default function LoginPage() {
                             Iniciar sesión con Google
                         </>
                     )}
-                </button>
+                </button></>}
 
                 <p className="text-center mt-lg text-muted text-sm">
                     ¿No tienes cuenta?{' '}

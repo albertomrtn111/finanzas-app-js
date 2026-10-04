@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 
 export default function PerfilPage() {
+    const { update: updateSession } = useSession();
     const [profile, setProfile] = useState({ name: '', email: '', authMethod: 'credentials' });
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(true);
@@ -12,6 +14,8 @@ export default function PerfilPage() {
     // Export state
     const [exportFormat, setExportFormat] = useState('zip');
     const [exportScope, setExportScope] = useState('all');
+    const [exportYear, setExportYear] = useState(() => String(new Date().getFullYear()));
+    const [exportMonth, setExportMonth] = useState(() => new Date().getMonth() + 1);
     const [exporting, setExporting] = useState(false);
     const [exportMessage, setExportMessage] = useState({ type: '', text: '' });
 
@@ -26,9 +30,11 @@ export default function PerfilPage() {
                 const data = await res.json();
                 setProfile(data);
                 setName(data.name || '');
+            } else {
+                setMessage({ type: 'error', text: 'No se pudo cargar el perfil' });
             }
         } catch (error) {
-            console.error('Error loading profile:', error);
+            setMessage({ type: 'error', text: 'Error de conexión al cargar el perfil' });
         }
         setLoading(false);
     };
@@ -52,6 +58,7 @@ export default function PerfilPage() {
             if (res.ok) {
                 const data = await res.json();
                 setProfile(prev => ({ ...prev, name: data.name }));
+                await updateSession().catch(() => {});
                 setMessage({ type: 'success', text: '¡Guardado correctamente!' });
                 setTimeout(() => setMessage({ type: '', text: '' }), 3000);
             } else {
@@ -65,6 +72,10 @@ export default function PerfilPage() {
     };
 
     const handleExport = async () => {
+        if (exportScope === 'month' && (!/^\d{4}$/.test(exportYear) || Number(exportYear) < 1900 || Number(exportYear) > 2100)) {
+            setExportMessage({ type: 'error', text: 'Elige un año entre 1900 y 2100' });
+            return;
+        }
         setExporting(true);
         setExportMessage({ type: '', text: '' });
 
@@ -73,9 +84,8 @@ export default function PerfilPage() {
             const params = new URLSearchParams({ format: exportFormat, scope: exportScope });
 
             if (exportScope === 'month') {
-                const now = new Date();
-                params.set('year', now.getFullYear().toString());
-                params.set('month', (now.getMonth() + 1).toString()); // 1-12
+                params.set('year', exportYear.toString());
+                params.set('month', exportMonth.toString());
             }
 
             const res = await fetch(`/api/export?${params.toString()}`);
@@ -102,7 +112,7 @@ export default function PerfilPage() {
             a.download = filename;
             document.body.appendChild(a);
             a.click();
-            window.URL.revokeObjectURL(url);
+            setTimeout(() => window.URL.revokeObjectURL(url), 1000);
             document.body.removeChild(a);
 
             setExportMessage({ type: 'success', text: '¡Exportación completada!' });
@@ -284,10 +294,26 @@ export default function PerfilPage() {
                                         checked={exportScope === 'month'}
                                         onChange={(e) => setExportScope(e.target.value)}
                                     />
-                                    <span>📅 Mes actual</span>
+                                    <span>📅 Elegir mes</span>
                                 </label>
                             </div>
                         </div>
+
+                        {exportScope === 'month' && (
+                            <div className="grid grid-2 gap-md">
+                                <div className="form-group">
+                                    <label className="form-label" htmlFor="export-month">Mes</label>
+                                    <select id="export-month" className="form-input form-select" value={exportMonth} onChange={event => setExportMonth(Number(event.target.value))}>
+                                        {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((month, index) =>
+                                            <option key={month} value={index + 1}>{month}</option>)}
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label" htmlFor="export-year">Año</label>
+                                    <input id="export-year" type="number" min="1900" max="2100" className="form-input" value={exportYear} onChange={event => setExportYear(event.target.value)} />
+                                </div>
+                            </div>
+                        )}
 
                         {exportMessage.text && (
                             <div className={`alert ${exportMessage.type === 'success' ? 'alert-success' : 'alert-danger'}`}>

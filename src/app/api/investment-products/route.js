@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
+import { parseId } from '@/lib/apiValidation';
+import { badRequest } from '@/lib/apiResponses';
+
+const validProduct = (name, assetType) =>
+    typeof name === 'string' && name.trim().length > 0 && name.trim().length <= 150 &&
+    typeof assetType === 'string' && assetType.trim().length > 0 && assetType.trim().length <= 100;
 
 // GET - Listar productos de inversión
 export async function GET(request) {
@@ -34,11 +40,9 @@ export async function POST(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const { name, asset_type } = await request.json();
+        const { name, asset_type } = await request.json().catch(() => ({}));
 
-        if (!name?.trim() || !asset_type?.trim()) {
-            return NextResponse.json({ error: 'Nombre y tipo de activo son obligatorios' }, { status: 400 });
-        }
+        if (!validProduct(name, asset_type)) return badRequest('Nombre o tipo de activo inválido');
 
         const product = await prisma.investmentProduct.create({
             data: {
@@ -68,27 +72,28 @@ export async function PUT(request) {
         }
 
         const userId = parseInt(session.user.id);
-        const { id, name, asset_type } = await request.json();
+        const { id, name, asset_type } = await request.json().catch(() => ({}));
+        const productId = parseId(id);
+        if (!productId || !validProduct(name, asset_type)) return badRequest('Producto inválido');
 
-        const existing = await prisma.investmentProduct.findFirst({
-            where: { id: parseInt(id), user_id: userId },
+        const product = await prisma.$transaction(async (tx) => {
+            const existing = await tx.investmentProduct.findFirst({ where: { id: productId, user_id: userId } });
+            if (!existing) return null;
+            const updated = await tx.investmentProduct.update({
+                where: { id: productId },
+                data: { name: name.trim(), asset_type: asset_type.trim() },
+            });
+            await tx.investment.updateMany({
+                where: { user_id: userId, account: existing.name },
+                data: { account: updated.name, asset_type: updated.asset_type },
+            });
+            return updated;
         });
-
-        if (!existing) {
-            return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-        }
-
-        const product = await prisma.investmentProduct.update({
-            where: { id: parseInt(id) },
-            data: {
-                name: name.trim(),
-                asset_type: asset_type.trim(),
-            },
-        });
-
+        if (!product) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         return NextResponse.json(product);
     } catch (error) {
         console.error('Error actualizando producto:', error);
+        if (error.code === 'P2002') return badRequest('Este producto ya existe');
         return NextResponse.json({ error: 'Error al actualizar' }, { status: 500 });
     }
 }
@@ -103,17 +108,13 @@ export async function DELETE(request) {
 
         const userId = parseInt(session.user.id);
         const { searchParams } = new URL(request.url);
-        const id = parseInt(searchParams.get('id'));
+        const id = parseId(searchParams.get('id'));
+        if (!id) return badRequest('Identificador inválido');
 
-        const product = await prisma.investmentProduct.findFirst({
-            where: { id, user_id: userId },
-        });
-
-        if (!product) {
+        const deleted = await prisma.investmentProduct.deleteMany({ where: { id, user_id: userId } });
+        if (!deleted.count) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
-
-        await prisma.investmentProduct.delete({ where: { id } });
 
         return NextResponse.json({ message: 'Producto eliminado' });
     } catch (error) {

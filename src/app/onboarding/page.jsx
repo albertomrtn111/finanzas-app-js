@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -21,12 +21,9 @@ export default function OnboardingPage() {
     const [currentStep, setCurrentStep] = useState(1);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
 
-    useEffect(() => {
-        loadOnboardingStatus();
-    }, []);
-
-    const loadOnboardingStatus = async () => {
+    const loadOnboardingStatus = useCallback(async () => {
         try {
             const res = await fetch('/api/user/onboarding');
             if (res.ok) {
@@ -43,29 +40,41 @@ export default function OnboardingPage() {
             console.error('Error loading onboarding status:', error);
         }
         setLoading(false);
-    };
+    }, [router]);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadOnboardingStatus(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadOnboardingStatus]);
 
     const updateStep = async (step) => {
         try {
-            await fetch('/api/user/onboarding', {
+            const response = await fetch('/api/user/onboarding', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ step })
             });
+            if (!response.ok) throw new Error('No se pudo guardar el progreso');
+            return true;
         } catch (error) {
             console.error('Error updating onboarding step:', error);
+            setError('No se pudo guardar el progreso. Inténtalo de nuevo.');
+            return false;
         }
     };
 
     const handleNext = async () => {
         setSaving(true);
-        await updateStep(currentStep);
+        setError('');
+        const saved = await updateStep(currentStep < 4 ? currentStep : 5);
 
+        if (!saved) {
+            setSaving(false);
+            return;
+        }
         if (currentStep < 4) {
             setCurrentStep(currentStep + 1);
         } else {
-            // Final step - mark as complete and redirect
-            await updateStep(5);
             router.push('/');
         }
         setSaving(false);
@@ -78,9 +87,10 @@ export default function OnboardingPage() {
     };
 
     const handleSkip = async () => {
-        // Skip onboarding entirely
-        await updateStep(5);
-        router.push('/');
+        setSaving(true);
+        setError('');
+        if (await updateStep(5)) router.push('/');
+        setSaving(false);
     };
 
     if (loading) {
@@ -107,6 +117,7 @@ export default function OnboardingPage() {
                 <button
                     onClick={handleSkip}
                     className="btn btn-ghost"
+                    disabled={saving}
                     style={{ fontSize: '0.875rem' }}
                 >
                     Saltar configuración →
@@ -132,6 +143,7 @@ export default function OnboardingPage() {
 
             {/* Step Content */}
             <div className="onboarding-content">
+                {error && <div className="alert alert-danger" role="alert">{error}</div>}
                 <div className="onboarding-step-header">
                     <h1>{stepInfo.title}</h1>
                     <p className="text-muted">{stepInfo.description}</p>

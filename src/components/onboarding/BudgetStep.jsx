@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function BudgetStep() {
     const [categories, setCategories] = useState([]);
@@ -9,11 +9,7 @@ export default function BudgetStep() {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
         try {
             const [catRes, budRes] = await Promise.all([
@@ -40,7 +36,12 @@ export default function BudgetStep() {
             console.error('Error loading data:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadData(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadData]);
 
     const handleChange = (category, value) => {
         setBudgets(prev => ({

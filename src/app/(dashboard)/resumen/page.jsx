@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
     PieChart, Pie, Cell, Legend, ReferenceLine
@@ -17,15 +17,14 @@ const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'
 export default function ResumenPage() {
     const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
 
-    useEffect(() => {
-        loadData();
-    }, [selectedYear, selectedMonth]);
-
-    const loadData = async () => {
+    const loadData = useCallback(async (signal) => {
         setLoading(true);
+        setError('');
+        setSummary(null);
         try {
             // Determine params
             const period = selectedMonth === -1 ? 'year' : 'month';
@@ -37,16 +36,22 @@ export default function ResumenPage() {
                 params.append('month', selectedMonth.toString());
             }
 
-            const res = await fetch(`/api/summary?${params.toString()}`);
-            if (res.ok) {
-                const data = await res.json();
-                setSummary(data);
-            }
+            const res = await fetch(`/api/summary?${params.toString()}`, { signal });
+            if (!res.ok) throw new Error('No se pudo cargar el resumen');
+            const data = await res.json();
+            if (!signal?.aborted) setSummary(data);
         } catch (error) {
-            console.error('Error cargando resumen:', error);
+            if (!signal?.aborted) setError(error.message || 'No se pudo cargar el resumen');
+        } finally {
+            if (!signal?.aborted) setLoading(false);
         }
-        setLoading(false);
-    };
+    }, [selectedYear, selectedMonth]);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => { void loadData(controller.signal); }, 0);
+        return () => { clearTimeout(timer); controller.abort(); };
+    }, [loadData]);
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -61,12 +66,8 @@ export default function ResumenPage() {
     // Month names for select
     const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-    // Generate years list (simple range for now, or could fetch available years from API if needed, strictly defaulting to recent range)
-    // To match previous logic exactly, we'd need to fetch year range. 
-    // For efficiency, let's hardcode a reasonable range or keep it dynamic if we had the list. 
-    // Let's assume user has data in recent 5 years + next year.
     const currentYear = new Date().getFullYear();
-    const allYears = Array.from({ length: 6 }, (_, i) => currentYear + 1 - i); // [2026, 2025, 2024...]
+    const allYears = Array.from({ length: currentYear - 1900 + 2 }, (_, i) => currentYear + 1 - i);
 
     if (loading && !summary) {
         return (
@@ -74,6 +75,12 @@ export default function ResumenPage() {
                 <div className="spinner"></div>
             </div>
         );
+    }
+
+    if (error && !summary) {
+        return <div className="page-container"><div className="alert alert-danger" role="alert">
+            {error} <button className="btn btn-secondary" onClick={() => loadData(new AbortController().signal)}>Reintentar</button>
+        </div></div>;
     }
 
     // Default empty structure if load failed

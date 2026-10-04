@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { localDateKey, parseAppDate } from '@/lib/dateUtils';
 
 export default function RegistroPage() {
     const [mode, setMode] = useState('gastos');
@@ -22,17 +23,8 @@ export default function RegistroPage() {
     const [loadingMore, setLoadingMore] = useState(false);
 
     // Date persistence
-    const TODAY = new Date().toISOString().split('T')[0];
+    const TODAY = localDateKey();
     const [autoDate, setAutoDate] = useState(TODAY);
-
-    useEffect(() => {
-        const savedDate = localStorage.getItem('nextfinance_last_date');
-        if (savedDate) {
-            setAutoDate(savedDate);
-            setExpenseForm(prev => ({ ...prev, date: savedDate }));
-            setIncomeForm(prev => ({ ...prev, date: savedDate }));
-        }
-    }, []);
 
     const updateAutoDate = (newDate) => {
         setAutoDate(newDate);
@@ -63,10 +55,19 @@ export default function RegistroPage() {
     const [incomeForm, setIncomeForm] = useState(getInitialIncomeForm(TODAY));
 
     useEffect(() => {
-        loadInitialData();
+        const timer = setTimeout(() => {
+            const savedDate = localStorage.getItem('nextfinance_last_date');
+            if (savedDate && /^\d{4}-\d{2}-\d{2}$/.test(savedDate) && parseAppDate(savedDate)) {
+                setAutoDate(savedDate);
+                setExpenseForm(prev => ({ ...prev, date: savedDate }));
+                setIncomeForm(prev => ({ ...prev, date: savedDate }));
+            }
+        }, 0);
+        return () => clearTimeout(timer);
     }, []);
 
-    const loadInitialData = async () => {
+
+    const loadInitialData = useCallback(async () => {
         setLoading(true);
         try {
             const [expRes, incRes, expCatRes, incCatRes] = await Promise.all([
@@ -91,18 +92,23 @@ export default function RegistroPage() {
             if (expCatRes.ok) {
                 const cats = await expCatRes.json();
                 setExpenseCategories(cats);
-                if (cats.length > 0 && !expenseForm.category) setExpenseForm(f => ({ ...f, category: cats[0].name }));
+                if (cats.length > 0) setExpenseForm(f => f.category ? f : ({ ...f, category: cats[0].name }));
             }
             if (incCatRes.ok) {
                 const cats = await incCatRes.json();
                 setIncomeCategories(cats);
-                if (cats.length > 0 && !incomeForm.category) setIncomeForm(f => ({ ...f, category: cats[0].name }));
+                if (cats.length > 0) setIncomeForm(f => f.category ? f : ({ ...f, category: cats[0].name }));
             }
         } catch (error) {
             console.error('Error cargando datos:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadInitialData(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadInitialData]);
 
     const loadMoreExpenses = async () => {
         if (loadingMore || !hasMoreExpenses) return;
@@ -301,7 +307,7 @@ export default function RegistroPage() {
     };
 
     const formatDate = (dateStr) => {
-        return new Date(dateStr).toLocaleDateString('es-ES');
+        return parseAppDate(dateStr)?.toLocaleDateString('es-ES') || dateStr;
     };
 
     if (loading) {

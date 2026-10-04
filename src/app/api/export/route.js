@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
 import archiver from 'archiver';
+import { badRequest } from '@/lib/apiResponses';
 
 
 export const dynamic = 'force-dynamic';
@@ -28,8 +29,8 @@ export async function GET(request) {
 
         const format = searchParams.get('format') || 'zip';
         const scope = searchParams.get('scope') || 'all';
-        const year = parseInt(searchParams.get('year')) || new Date().getFullYear();
-        const month = parseInt(searchParams.get('month')) || new Date().getMonth() + 1; // 1-12
+        const year = Number(searchParams.get('year') ?? new Date().getUTCFullYear());
+        const month = Number(searchParams.get('month') ?? new Date().getUTCMonth() + 1);
 
         // Validate params
         if (!['zip', 'json'].includes(format)) {
@@ -38,16 +39,20 @@ export async function GET(request) {
         if (!['all', 'month'].includes(scope)) {
             return NextResponse.json({ error: 'Scope inválido (all o month)' }, { status: 400 });
         }
+        if (scope === 'month' && (!Number.isInteger(year) || year < 1900 || year > 2100 ||
+            !Number.isInteger(month) || month < 1 || month > 12)) {
+            return badRequest('Año o mes inválido');
+        }
 
         // Build date filter for month scope
         let dateFilter = {};
         if (scope === 'month') {
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0, 23, 59, 59);
+            const startDate = new Date(Date.UTC(year, month - 1, 1));
+            const endDate = new Date(Date.UTC(year, month, 1));
             dateFilter = {
                 date: {
                     gte: startDate,
-                    lte: endDate
+                    lt: endDate
                 }
             };
         }
@@ -69,23 +74,23 @@ export async function GET(request) {
             }),
             prisma.expense.findMany({
                 where: { user_id: userId, ...(scope === 'month' ? dateFilter : {}) },
-                select: { id: true, date: true, amount: true, category: true, payment_method: true, expense_type: true, notes: true }
+                select: { id: true, date: true, amount: true, category: true, subcategory: true, payment_method: true, expense_type: true, notes: true }
             }),
             prisma.budget.findMany({
                 where: { user_id: userId },
-                select: { id: true, category: true, monthly_amount: true, year: true, month: true }
+                select: { id: true, category: true, monthly_amount: true }
             }),
             prisma.cashSnapshot.findMany({
                 where: { user_id: userId, ...(scope === 'month' ? dateFilter : {}) },
-                select: { id: true, date: true, account: true, current_value: true }
+                select: { id: true, date: true, account: true, current_value: true, notes: true }
             }),
             prisma.investment.findMany({
                 where: { user_id: userId, ...(scope === 'month' ? dateFilter : {}) },
-                select: { id: true, date: true, account: true, product: true, asset_type: true, current_value: true, contribution: true }
+                select: { id: true, date: true, account: true, asset_type: true, current_value: true, contribution: true, notes: true }
             }),
             prisma.investmentProduct.findMany({
                 where: { user_id: userId },
-                select: { id: true, name: true, asset_type: true, weight: true }
+                select: { id: true, name: true, asset_type: true }
             }),
             prisma.expenseCategory.findMany({
                 where: { user_id: userId },
@@ -122,7 +127,7 @@ export async function GET(request) {
         // Generate filename
         const now = new Date();
         const timestamp = now.toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
-        const filename = `finanzas-export_${timestamp}`;
+        const filename = `finanzas-export_${scope === 'month' ? `${year}-${String(month).padStart(2, '0')}` : 'completo'}_${timestamp}`;
 
         if (format === 'json') {
             // Return JSON file
@@ -137,7 +142,7 @@ export async function GET(request) {
         }
 
         // Generate ZIP with CSVs
-        const zipBuffer = await generateZip(data, filename);
+        const zipBuffer = await generateZip(data);
 
         return new Response(zipBuffer, {
             status: 200,
@@ -165,7 +170,7 @@ function formatDates(records) {
 }
 
 // Generate ZIP file with CSVs
-async function generateZip(data, filename) {
+async function generateZip(data) {
     return new Promise((resolve, reject) => {
         const chunks = [];
         const archive = archiver('zip', { zlib: { level: 9 } });
@@ -190,16 +195,7 @@ async function generateZip(data, filename) {
         ];
 
         for (const table of tables) {
-            try {
-                // Determine headers from the first item if specific headers aren't strict,
-                // or just use all keys from the objects (since we selected specific fields in Prisma)
-                const csvData = toCSV(table.data);
-                archive.append(csvData, { name: `${table.name}.csv` });
-            } catch (e) {
-                console.error(`Error generating CSV for ${table.name}:`, e);
-                // Append error note in the CSV file instead of failing silently
-                archive.append(`Error generating CSV: ${e.message}`, { name: `${table.name}_error.txt` });
-            }
+            archive.append(toCSV(table.data), { name: `${table.name}.csv` });
         }
 
         archive.finalize();
@@ -221,8 +217,10 @@ function toCSV(data) {
             if (val instanceof Date) return val.toISOString();
             // Escape quotes if necessary, though simple data usually doesn't need it.
             // For safety, wrap in quotes if it contains delimiter
-            const str = String(val);
-            if (str.includes(';') || str.includes('"') || str.includes('\n')) {
+            // Spreadsheet programs can execute formulas in imported CSV files.
+            const str = /^[\s]*[=+@-]/.test(String(val)) && typeof val === 'string'
+                ? `'${val}` : String(val);
+            if (str.includes(';') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
                 return `"${str.replace(/"/g, '""')}"`;
             }
             return str;

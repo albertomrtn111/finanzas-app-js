@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 
 export default function PresupuestosPage() {
     const [categories, setCategories] = useState([]);
@@ -11,11 +11,7 @@ export default function PresupuestosPage() {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
         try {
             const [catRes, budRes, expRes, incRes] = await Promise.all([
@@ -43,7 +39,12 @@ export default function PresupuestosPage() {
             console.error('Error cargando datos:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadData(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadData]);
 
     const showMessage = (type, text) => {
         setMessage({ type, text });

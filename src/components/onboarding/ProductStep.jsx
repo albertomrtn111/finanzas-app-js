@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 export default function ProductStep() {
     const [products, setProducts] = useState([]);
@@ -11,11 +11,7 @@ export default function ProductStep() {
 
     const assetTypes = ['ETF', 'Fondo indexado', 'Acciones', 'Crypto', 'Bonos', 'Inmuebles', 'Otro'];
 
-    useEffect(() => {
-        loadProducts();
-    }, []);
-
-    const loadProducts = async () => {
+    const loadProducts = useCallback(async () => {
         setLoading(true);
         try {
             const res = await fetch('/api/investment-products');
@@ -27,7 +23,12 @@ export default function ProductStep() {
             console.error('Error loading products:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadProducts(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadProducts]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();

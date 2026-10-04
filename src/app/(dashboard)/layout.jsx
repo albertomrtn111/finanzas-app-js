@@ -11,20 +11,19 @@ export default async function DashboardLayout({ children }) {
         redirect('/login');
     }
 
-    // Check onboarding status
+    // Check onboarding status before rendering any private dashboard page.
+    let user;
     try {
-        const user = await prisma.user.findUnique({
+        user = await prisma.user.findUnique({
             where: { id: parseInt(session.user.id) },
             select: { onboarding_step: true }
         });
-
-        if (user && user.onboarding_step < 5) {
-            redirect('/onboarding');
-        }
     } catch (error) {
         console.error('Error checking onboarding status:', error);
-        // Continue to dashboard if check fails
+        throw error;
     }
+    if (!user) redirect('/login');
+    if (user.onboarding_step < 5) redirect('/onboarding');
 
     return (
         <div style={{ display: 'flex', minHeight: '100vh' }}>
@@ -35,4 +34,3 @@ export default async function DashboardLayout({ children }) {
         </div>
     );
 }
-

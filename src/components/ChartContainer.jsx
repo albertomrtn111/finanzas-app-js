@@ -33,7 +33,6 @@ export default function ChartContainer({
     const [dims, setDims] = useState({ w: 0, h: 0 });
     const [renderKey, setRenderKey] = useState(0);
     const [isMobile, setIsMobile] = useState(false);
-    const prevRefreshKey = useRef(refreshKey);
 
     // Determine container height based on viewport
     const containerHeight = isMobile ? heightMobile : heightDesktop;
@@ -72,24 +71,6 @@ export default function ChartContainer({
         observer.observe(container);
         return () => observer.disconnect();
     }, []);
-
-    // Bump render key when dimensions become valid or change significantly
-    useEffect(() => {
-        if (dims.w > 0 && dims.h > 0) {
-            setRenderKey((k) => k + 1);
-        }
-    }, [dims.w, dims.h]);
-
-    // Bump render key when refreshKey changes (for async data updates)
-    useEffect(() => {
-        if (refreshKey !== prevRefreshKey.current) {
-            prevRefreshKey.current = refreshKey;
-            // Only bump if dimensions are already valid
-            if (dims.w > 0 && dims.h > 0) {
-                setRenderKey((k) => k + 1);
-            }
-        }
-    }, [refreshKey, dims.w, dims.h]);
 
     // Handle layout change event (from sidebar)
     const handleLayoutChange = useCallback(() => {
@@ -149,7 +130,7 @@ export default function ChartContainer({
                 }}
             >
                 {showChart ? (
-                    <div key={`chart-${renderKey}`} style={{ width: '100%', height: '100%' }}>
+                    <div key={`chart-${dims.w}-${dims.h}-${refreshKey ?? ''}-${renderKey}`} style={{ width: '100%', height: '100%' }}>
                         {renderContent()}
                     </div>
                 ) : (

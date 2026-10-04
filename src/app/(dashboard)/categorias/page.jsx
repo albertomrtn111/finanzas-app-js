@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 
 export default function CategoriasPage() {
     const [tab, setTab] = useState('expense');
@@ -13,11 +13,7 @@ export default function CategoriasPage() {
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
-    useEffect(() => {
-        loadData();
-    }, []);
-
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setLoading(true);
         try {
             const [expCatRes, incCatRes, expRes, incRes] = await Promise.all([
@@ -34,7 +30,12 @@ export default function CategoriasPage() {
             console.error('Error cargando categorías:', error);
         }
         setLoading(false);
-    };
+    }, []);
+
+    useEffect(() => {
+        const timer = setTimeout(() => { void loadData(); }, 0);
+        return () => clearTimeout(timer);
+    }, [loadData]);
 
     // Calculate stats per category
     const categoryStats = useMemo(() => {
@@ -58,8 +59,9 @@ export default function CategoriasPage() {
         });
 
         // Calculate total expenses for percentage
-        const totalExpenses = Object.values(stats)
-            .filter((_, key) => key.startsWith?.('expense'))
+        const totalExpenses = Object.entries(stats)
+            .filter(([key]) => key.startsWith('expense-'))
+            .map(([, value]) => value)
             .reduce((sum, s) => sum + s.total, 0);
 
         // Update percentages
