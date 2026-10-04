@@ -26,6 +26,7 @@ Se revisaron autenticación, control de acceso, rutas de datos, movimientos, pre
 | Media | El panel y el resumen podían mostrar ceros o datos parciales si fallaba una consulta. | Estado de error visible y opción de reintento. |
 | Baja | La compilación dependía de descargar fuentes externas, había avisos de Next.js y fallaba el análisis estático. | Fuentes locales de reserva, convención `proxy`, metadatos corregidos y análisis estático limpio. |
 | Baja | Controles pequeños o sin acción y formularios con errores silenciosos. | Objetivos táctiles más grandes, mensajes de error y eliminación del botón de notificaciones sin función. |
+| Alta | La compilación en el servidor detectó avisos críticos en las versiones instaladas de Next.js y NextAuth. | Se actualizaron a Next.js 16.3.8 y NextAuth 4.24.15, junto con dependencias transitivas compatibles. |
 
 Además, se añadieron cabeceras para impedir almacenamiento de respuestas API sensibles, nombres coherentes en las exportaciones, selección de mes/año para exportar, actualización de sesión tras cambiar el nombre y documentación de puesta en marcha.
 
@@ -36,6 +37,7 @@ Además, se añadieron cabeceras para impedir almacenamiento de respuestas API s
 - `npm run build`: correcto.
 - `npx prisma validate`: correcto.
 - `git diff --check`: correcto.
+- `npm audit --omit=dev`: sin avisos en dependencias de producción tras la actualización.
 - Acceso y registro revisados visualmente a 375 px, sin desplazamiento horizontal.
 - Una consulta sin sesión a `/api/expenses` devolvió 401.
 
@@ -44,3 +46,5 @@ Además, se añadieron cabeceras para impedir almacenamiento de respuestas API s
 La base de datos de `.env` no fue accesible desde este entorno (`P1001` de Prisma). No se pudieron ejecutar pruebas de integración con registros reales, verificar la correspondencia exacta entre tablas desplegadas y esquema Prisma ni abrir pantallas privadas con una sesión válida. La aplicación comparte tablas preexistentes y este repositorio no incluye migraciones.
 
 La importación envía movimientos uno a uno. Si se pierde la conexión justo después de guardar una fila, el navegador no puede confirmar si se creó; esa fila queda marcada para revisión manual antes de repetirla. Para eliminar esa incertidumbre haría falta persistir identificadores de importación en la base de datos.
+
+La auditoría completa de npm sigue mostrando cinco avisos altos en dependencias transitivas de las herramientas de desarrollo de ESLint. La corrección automática propuesta exigiría bajar `eslint-config-next` a una versión incompatible con Next.js 16; no se aplicó esa degradación. Estas herramientas no forman parte de las dependencias de producción que ejecuta la aplicación.
