@@ -50,6 +50,7 @@ export const authOptions = {
                     email: user.email,
                     name: user.name || user.email.split('@')[0], // Fallback to email prefix
                     onboardingStep: user.onboarding_step,
+                    accountMode: user.account_mode,
                 };
             }
         })
@@ -84,6 +85,7 @@ export const authOptions = {
                                 google_sub: account.providerAccountId,
                                 password_hash: null, // OAuth users don't have password
                                 onboarding_step: 0,
+                                account_mode: 'UNSET',
                                 created_at: new Date(),
                                 last_login_at: new Date(),
                             }
@@ -118,6 +120,7 @@ export const authOptions = {
                     user.id = dbUser.id.toString();
                     user.name = dbUser.name || user.name;
                     user.onboardingStep = dbUser.onboarding_step;
+                    user.accountMode = dbUser.account_mode;
 
                 } catch (error) {
                     console.error('Error in Google signIn callback:', error);
@@ -132,14 +135,16 @@ export const authOptions = {
                 token.id = user.id;
                 token.name = user.name;
                 token.onboardingStep = user.onboardingStep;
+                token.accountMode = user.accountMode;
             }
 
             // Handle session update (e.g., after profile edit)
             if (trigger === 'update' && session && token.id) {
-                const dbUser = await prisma.user.findUnique({ where: { id: Number(token.id) }, select: { name: true, onboarding_step: true } });
+                const dbUser = await prisma.user.findUnique({ where: { id: Number(token.id) }, select: { name: true, onboarding_step: true, account_mode: true } });
                 if (dbUser) {
                     token.name = dbUser.name;
                     token.onboardingStep = dbUser.onboarding_step;
+                    token.accountMode = dbUser.account_mode;
                 }
             }
 
@@ -150,6 +155,7 @@ export const authOptions = {
                 session.user.id = token.id;
                 session.user.name = token.name;
                 session.user.onboardingStep = token.onboardingStep;
+                session.user.accountMode = token.accountMode;
             }
             return session;
         }

@@ -16,13 +16,15 @@ export default async function DashboardLayout({ children }) {
     try {
         user = await prisma.user.findUnique({
             where: { id: parseInt(session.user.id) },
-            select: { onboarding_step: true }
+            select: { onboarding_step: true, account_mode: true }
         });
     } catch (error) {
         console.error('Error checking onboarding status:', error);
         throw error;
     }
     if (!user) redirect('/login');
+    if (user.account_mode === 'UNSET') redirect('/elegir-cuenta');
+    if (user.account_mode === 'COMPANY') redirect('/empresa');
     if (user.onboarding_step < 5) redirect('/onboarding');
 
     return (

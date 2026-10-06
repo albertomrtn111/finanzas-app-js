@@ -16,6 +16,7 @@ model User {
   name          String?   @db.VarChar(100)
   password_hash String?   @db.VarChar(255)
   google_sub    String?   @unique @db.VarChar(255)
+  account_mode  String    @default("PERSONAL") @db.VarChar(16)
   onboarding_step Int     @default(0)
   created_at    DateTime
   last_login_at DateTime?
@@ -30,6 +31,7 @@ model User {
   investmentProducts  InvestmentProduct[]
   cashSnapshots       CashSnapshot[]
   investmentAssetTypes InvestmentAssetType[]
+  businesses          Business[]
 
   @@map("users")
 }
@@ -171,4 +173,169 @@ model CashSnapshot {
   @@index([user_id, date])
   @@index([user_id, account])
   @@map("cash_snapshots")
+}
+
+// El espacio de empresa es independiente de las tablas personales existentes.
+model Business {
+  id             Int       @id @default(autoincrement())
+  owner_user_id  Int
+  name           String    @db.VarChar(120)
+  legal_name     String?   @db.VarChar(160)
+  tax_id         String?   @db.VarChar(32)
+  kind           String    @default("SELF_EMPLOYED") @db.VarChar(24)
+  vat_regime     String    @default("GENERAL") @db.VarChar(24)
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  owner       User                 @relation(fields: [owner_user_id], references: [id], onDelete: Cascade)
+  accounts    BusinessAccount[]
+  activities  BusinessActivity[]
+  movements   BusinessMovement[]
+  allocations BusinessAllocation[]
+  attachments BusinessAttachment[]
+  plans       BusinessCashPlan[]
+  budgets     BusinessBudget[]
+
+  @@index([owner_user_id])
+  @@map("businesses")
+}
+
+model BusinessAccount {
+  id              Int       @id @default(autoincrement())
+  business_id     Int
+  name            String    @db.VarChar(120)
+  kind            String    @default("BANK") @db.VarChar(16)
+  opening_balance Decimal   @default(0) @db.Decimal(14, 2)
+  opening_on      DateTime  @db.Date
+  created_at      DateTime  @default(now())
+
+  business  Business           @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  movements BusinessMovement[]
+
+  @@unique([business_id, name])
+  @@index([business_id])
+  @@map("business_accounts")
+}
+
+// Hechos económicos por devengo, con o sin factura externa.
+model BusinessActivity {
+  id                  Int       @id @default(autoincrement())
+  business_id         Int
+  direction           String    @db.VarChar(8)
+  description         String    @db.VarChar(240)
+  category            String    @db.VarChar(100)
+  occurred_on         DateTime  @db.Date
+  due_on              DateTime? @db.Date
+  counterparty_name   String?   @db.VarChar(160)
+  counterparty_tax_id String?   @db.VarChar(32)
+  document_kind       String    @default("NONE") @db.VarChar(24)
+  document_number     String?   @db.VarChar(80)
+  document_date       DateTime? @db.Date
+  vat_period          String?   @db.VarChar(7)
+  tax_lines           Json
+  base_amount         Decimal   @db.Decimal(14, 2)
+  vat_amount          Decimal   @db.Decimal(14, 2)
+  deductible_vat      Decimal   @default(0) @db.Decimal(14, 2)
+  withholding_amount  Decimal   @default(0) @db.Decimal(14, 2)
+  total_amount        Decimal   @db.Decimal(14, 2)
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  business    Business             @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  allocations BusinessAllocation[]
+  attachments BusinessAttachment[]
+
+  @@index([business_id, occurred_on])
+  @@index([business_id, due_on])
+  @@index([business_id, vat_period])
+  @@index([business_id, direction, document_number])
+  @@map("business_activities")
+}
+
+// Un movimiento representa dinero real. Los traspasos crean dos movimientos enlazados.
+model BusinessMovement {
+  id             Int       @id @default(autoincrement())
+  business_id    Int
+  account_id     Int
+  date           DateTime  @db.Date
+  amount         Decimal   @db.Decimal(14, 2)
+  description    String    @db.VarChar(240)
+  flow_type      String    @default("OPERATING") @db.VarChar(16)
+  transfer_group String?   @db.VarChar(40)
+  created_at     DateTime  @default(now())
+
+  business    Business             @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  account     BusinessAccount      @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  allocations BusinessAllocation[]
+
+  @@index([business_id, date])
+  @@index([account_id, date])
+  @@map("business_movements")
+}
+
+model BusinessAllocation {
+  id          Int      @id @default(autoincrement())
+  business_id Int
+  activity_id Int
+  movement_id Int
+  amount      Decimal  @db.Decimal(14, 2)
+  created_at  DateTime @default(now())
+
+  business Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  activity BusinessActivity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  movement BusinessMovement @relation(fields: [movement_id], references: [id], onDelete: Cascade)
+
+  @@unique([activity_id, movement_id])
+  @@index([business_id])
+  @@map("business_allocations")
+}
+
+model BusinessAttachment {
+  id          Int      @id @default(autoincrement())
+  business_id Int
+  activity_id Int
+  filename    String   @db.VarChar(180)
+  mime_type   String   @db.VarChar(80)
+  data        Bytes
+  created_at  DateTime @default(now())
+
+  business Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  activity BusinessActivity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id, activity_id])
+  @@map("business_attachments")
+}
+
+// Compromisos futuros que todavía no son ingresos o gastos incurridos.
+model BusinessCashPlan {
+  id          Int      @id @default(autoincrement())
+  business_id Int
+  description String   @db.VarChar(240)
+  direction   String   @db.VarChar(8)
+  due_on      DateTime @db.Date
+  amount      Decimal  @db.Decimal(14, 2)
+  category    String   @db.VarChar(100)
+  status      String   @default("PLANNED") @db.VarChar(12)
+  created_at  DateTime @default(now())
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@index([business_id, due_on])
+  @@map("business_cash_plans")
+}
+
+model BusinessBudget {
+  id          Int      @id @default(autoincrement())
+  business_id Int
+  period      String   @db.VarChar(7)
+  direction   String   @db.VarChar(8)
+  category    String   @db.VarChar(100)
+  amount      Decimal  @db.Decimal(14, 2)
+  created_at  DateTime @default(now())
+
+  business Business @relation(fields: [business_id], references: [id], onDelete: Cascade)
+
+  @@unique([business_id, period, direction, category])
+  @@index([business_id, period])
+  @@map("business_budgets")
 }

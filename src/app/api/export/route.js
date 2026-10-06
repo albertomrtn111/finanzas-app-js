@@ -20,7 +20,7 @@ export async function GET(request) {
     try {
         // Auth check
         const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
+        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         }
 

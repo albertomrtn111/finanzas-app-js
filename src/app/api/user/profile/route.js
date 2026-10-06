@@ -59,6 +59,8 @@ export async function GET(request) {
                 email: true,
                 name: true,
                 google_sub: true,
+                account_mode: true,
+                businesses: { select: { id: true, name: true, kind: true }, orderBy: { id: 'asc' } },
             }
         });
 
@@ -73,7 +75,9 @@ export async function GET(request) {
             id: user.id,
             email: user.email,
             name: user.name,
-            authMethod
+            authMethod,
+            accountMode: user.account_mode,
+            businesses: user.businesses,
         });
     } catch (error) {
         console.error('Error getting profile:', error);

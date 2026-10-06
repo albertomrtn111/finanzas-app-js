@@ -11,7 +11,7 @@ const validName = (name) => typeof name === 'string' && name.trim().length > 0 &
 export async function GET(request) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
+        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         }
 
@@ -44,7 +44,7 @@ export async function GET(request) {
 export async function POST(request) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
+        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         }
 
@@ -86,7 +86,7 @@ export async function POST(request) {
 export async function PUT(request) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
+        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         }
 
@@ -126,7 +126,7 @@ export async function PUT(request) {
 export async function DELETE(request) {
     try {
         const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
+        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
             return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
         }
 

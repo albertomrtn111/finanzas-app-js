@@ -2,14 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
-export default function PerfilPage() {
+export default function PerfilPage({ businessContext = false }) {
     const { update: updateSession } = useSession();
+    const router = useRouter();
     const [profile, setProfile] = useState({ name: '', email: '', authMethod: 'credentials' });
     const [name, setName] = useState('');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
+    const [businessName, setBusinessName] = useState('');
+    const [businessKind, setBusinessKind] = useState('SELF_EMPLOYED');
+    const [creatingBusiness, setCreatingBusiness] = useState(false);
 
     // Export state
     const [exportFormat, setExportFormat] = useState('zip');
@@ -125,6 +131,21 @@ export default function PerfilPage() {
         setExporting(false);
     };
 
+    const handleCreateBusiness = async (event) => {
+        event.preventDefault();
+        setCreatingBusiness(true);
+        setMessage({ type: '', text: '' });
+        try {
+            const res = await fetch('/api/businesses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: businessName, kind: businessKind }) });
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error || 'No se pudo crear la empresa');
+            await updateSession();
+            router.push(`/empresa/${result.id}/resumen`);
+            router.refresh();
+        } catch (error) { setMessage({ type: 'error', text: error.message }); }
+        finally { setCreatingBusiness(false); }
+    };
+
     if (loading) {
         return (
             <div className="page-container">
@@ -139,8 +160,19 @@ export default function PerfilPage() {
         <div className="page-container">
             <div className="page-header">
                 <h1 className="page-title">Mi Perfil</h1>
-                <p className="page-subtitle">Gestiona tu cuenta y exporta tus datos</p>
+                <p className="page-subtitle">Gestiona tu acceso y cambia de espacio financiero</p>
             </div>
+
+            <div className="card business-spaced"><div className="card-header"><h2>Espacios financieros</h2></div><div className="card-body business-list">
+                {profile.accountMode !== 'COMPANY' && <div className="business-line"><span>Personal</span><Link className="btn btn-secondary" href="/">Ir a Personal</Link></div>}
+                {(profile.businesses || []).map(business => <div className="business-line" key={business.id}><span>{business.name} · {business.kind === 'COMPANY' ? 'Sociedad' : 'Autónomo'}</span><Link className="btn btn-primary" href={`/empresa/${business.id}/resumen`}>Cambiar a cuenta de empresa</Link></div>)}
+                {!!(profile.businesses || []).length && <Link className="btn btn-secondary" href="/empresa/nueva">Añadir otra empresa</Link>}
+                {!(profile.businesses || []).length && <form onSubmit={handleCreateBusiness} className="business-form-grid">
+                    <div className="form-group"><label className="form-label" htmlFor="newBusinessName">Nombre del negocio</label><input id="newBusinessName" className="form-input" value={businessName} onChange={e => setBusinessName(e.target.value)} maxLength={120} required /></div>
+                    <div className="form-group"><label className="form-label" htmlFor="newBusinessKind">Tipo</label><select id="newBusinessKind" className="form-input form-select" value={businessKind} onChange={e => setBusinessKind(e.target.value)}><option value="SELF_EMPLOYED">Autónomo</option><option value="COMPANY">Sociedad</option></select></div>
+                    <button className="btn btn-primary business-full" disabled={creatingBusiness}>{creatingBusiness ? 'Creando...' : 'Crear cuenta de empresa'}</button>
+                </form>}
+            </div></div>
 
             <div className="grid grid-2 gap-lg">
                 {/* Profile Info Card */}
@@ -236,7 +268,7 @@ export default function PerfilPage() {
                 </div>
 
                 {/* Export Card */}
-                <div className="card">
+                {profile.accountMode !== 'COMPANY' && !businessContext && <div className="card">
                     <div className="card-header">
                         <h3>📦 Exportar datos</h3>
                     </div>
@@ -343,7 +375,7 @@ export default function PerfilPage() {
                             Incluye: ingresos, gastos, presupuestos, inversiones, efectivo, categorías y productos.
                         </small>
                     </div>
-                </div>
+                </div>}
             </div>
         </div>
     );

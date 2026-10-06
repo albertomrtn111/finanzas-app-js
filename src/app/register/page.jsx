@@ -10,6 +10,9 @@ export default function RegisterPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [password2, setPassword2] = useState('');
+    const [accountMode, setAccountMode] = useState('PERSONAL');
+    const [businessName, setBusinessName] = useState('');
+    const [businessKind, setBusinessKind] = useState('SELF_EMPLOYED');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [loading, setLoading] = useState(false);
@@ -41,7 +44,7 @@ export default function RegisterPage() {
             const res = await fetch('/api/auth/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email, password }),
+                body: JSON.stringify({ name, email, password, accountMode, businessName, businessKind }),
             });
 
             const data = await res.json();
@@ -57,7 +60,7 @@ export default function RegisterPage() {
                     redirect: false,
                 });
                 if (signInResult?.ok) {
-                    router.push('/onboarding');
+                    router.push(accountMode === 'COMPANY' ? '/empresa' : '/onboarding');
                 } else {
                     // Fallback to login page if auto-login fails
                     router.push('/login');
@@ -92,6 +95,30 @@ export default function RegisterPage() {
                 )}
 
                 <form onSubmit={handleSubmit}>
+                    <fieldset className="form-group account-choice">
+                        <legend className="form-label">¿Qué quieres gestionar?</legend>
+                        {[
+                            ['PERSONAL', 'Mis finanzas personales'],
+                            ['COMPANY', 'Mi empresa'],
+                            ['BOTH', 'Personal y empresa'],
+                        ].map(([value, label]) => <label key={value} className="choice-option">
+                            <input type="radio" name="accountMode" value={value} checked={accountMode === value} onChange={() => setAccountMode(value)} />
+                            <span>{label}</span>
+                        </label>)}
+                    </fieldset>
+                    {accountMode !== 'PERSONAL' && <div className="grid grid-2 gap-md">
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="businessName">Nombre del negocio</label>
+                            <input id="businessName" className="form-input" value={businessName} onChange={e => setBusinessName(e.target.value)} maxLength={120} required />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label" htmlFor="businessKind">Tipo de negocio</label>
+                            <select id="businessKind" className="form-input form-select" value={businessKind} onChange={e => setBusinessKind(e.target.value)}>
+                                <option value="SELF_EMPLOYED">Autónomo</option>
+                                <option value="COMPANY">Sociedad</option>
+                            </select>
+                        </div>
+                    </div>}
                     <div className="form-group">
                         <label className="form-label" htmlFor="name">
                             Nombre

@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 export async function POST(request) {
     try {
         const body = await request.json().catch(() => ({}));
-        const { email, password, name } = body;
+        const { email, password, name, accountMode, businessName, businessKind } = body;
 
         // Validate required fields
         if (!email || typeof email !== 'string') {
@@ -48,6 +48,12 @@ export async function POST(request) {
 
         const emailNormalized = email.toLowerCase().trim();
         const nameTrimmed = name.trim();
+        if (!['PERSONAL', 'COMPANY', 'BOTH'].includes(accountMode)) {
+            return NextResponse.json({ error: 'Elige el tipo de cuenta' }, { status: 400 });
+        }
+        if (accountMode !== 'PERSONAL' && (!businessName || typeof businessName !== 'string' || !businessName.trim() || businessName.trim().length > 120 || !['SELF_EMPLOYED', 'COMPANY'].includes(businessKind))) {
+            return NextResponse.json({ error: 'Indica el nombre y tipo de negocio' }, { status: 400 });
+        }
 
         // Check if user already exists
         const existingUser = await prisma.user.findUnique({
@@ -65,19 +71,26 @@ export async function POST(request) {
         const password_hash = await bcrypt.hash(password, 12);
 
         // Create user
-        const user = await prisma.user.create({
-            data: {
-                name: nameTrimmed,
-                email: emailNormalized,
-                password_hash,
-                onboarding_step: 0,
-                created_at: new Date(),
+        const user = await prisma.$transaction(async tx => {
+            const created = await tx.user.create({
+                data: {
+                    name: nameTrimmed,
+                    email: emailNormalized,
+                    password_hash,
+                    account_mode: accountMode,
+                    onboarding_step: accountMode === 'COMPANY' ? 5 : 0,
+                    created_at: new Date(),
+                }
+            });
+            if (accountMode !== 'PERSONAL') {
+                await tx.business.create({ data: { owner_user_id: created.id, name: businessName.trim(), kind: businessKind } });
             }
+            return created;
         });
 
         return NextResponse.json({
             message: 'Cuenta creada correctamente',
-            user: { id: user.id, email: user.email, name: user.name }
+            user: { id: user.id, email: user.email, name: user.name, accountMode: user.account_mode }
         }, { status: 201 });
 
     } catch (error) {
