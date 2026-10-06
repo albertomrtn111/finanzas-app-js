@@ -6,11 +6,11 @@ Aplicación de finanzas personales con Next.js, NextAuth y Prisma. Permite regis
 
 1. Instala las dependencias con `npm ci`.
 2. Copia `env-example.txt` a `.env` y configura `DATABASE_URL`, `NEXTAUTH_URL` y `NEXTAUTH_SECRET`. La autenticación con Google es opcional; requiere `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`.
-3. En una base que ya tenga las tablas personales, aplica `npx prisma migrate deploy` para añadir el módulo Empresa.
+3. Si la base ya tiene las tablas personales y todavía no existe `_prisma_migrations`, registra la migración inicial con `npx prisma migrate resolve --applied 20261004_personal_baseline`. Después aplica `npx prisma migrate deploy`. En una base vacía basta con `npx prisma migrate deploy`.
 4. Genera el cliente de Prisma con `npx prisma generate`.
 5. Inicia la aplicación con `npm run dev` y abre `http://localhost:3000`.
 
-Las tablas personales existían antes de que este repositorio incorporase migraciones. La migración `20261005_business_module` añade `users.account_mode` y las tablas de Empresa a esa base existente; no crea las tablas personales en una base vacía. Haz una copia de seguridad antes de aplicarla. El cliente de Prisma y el servidor necesitan la migración aplicada para usar las nuevas rutas.
+Las tablas personales existían antes de que este repositorio incorporase migraciones. `20261004_personal_baseline` reproduce su esquema para instalaciones nuevas y debe marcarse como aplicada, sin ejecutarla, en bases existentes. `20261005_business_module` añade `users.account_mode` y las tablas de Empresa. Haz una copia de seguridad antes de aplicarla. El cliente de Prisma y el servidor necesitan la migración aplicada para usar las nuevas rutas.
 
 ## Comprobaciones
 
