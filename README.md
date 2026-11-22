@@ -35,3 +35,27 @@ npx prisma validate
 - La previsión suma pendientes con vencimiento y planes futuros abiertos. Al registrar un plan como movimiento, márcalo como realizado para evitar duplicarlo en la previsión.
 - El registro de IVA cubre el régimen general y operaciones interiores, exentas o no sujetas introducidas manualmente. Muestra un resumen orientativo y exporta el detalle en CSV; no presenta declaraciones ni emite facturas. Los regímenes especiales, operaciones intracomunitarias, inversión del sujeto pasivo y facturas rectificativas necesitan reglas adicionales antes de considerarse cubiertos.
 - Los adjuntos PDF o imagen de hasta 5 MB se guardan en PostgreSQL y solo se descargan tras comprobar la titularidad de la empresa.
+
+## MCP para la IA
+
+`/api/mcp` es un servidor MCP (HTTP, sin sesión) que da a Claude u otra IA lectura y escritura sobre los datos personales y de cada empresa del usuario dueño del token.
+
+- **Herramientas:** contexto y espacios; búsqueda, resumen (desviación frente al presupuesto, tasa de ahorro, comparación con el periodo anterior) y patrimonio personal; crear, editar y borrar gastos, ingresos, saldos, inversiones, categorías, presupuestos y productos; resumen, operaciones, movimientos, cuentas, previsiones y presupuestos de empresa; historial de cambios y deshacer.
+- **Registro de cambios:** cada escritura queda en `change_log` con el estado anterior y posterior. `deshacer_cambio` revierte por id o por lote, y se detiene si el registro cambió después, salvo que se indique `forzar`. Los adjuntos de una operación borrada no se recuperan.
+- **Acceso:** cada petición lleva `Authorization: Bearer <token>`. En `mcp_tokens` solo se guarda el hash del token. Publícalo siempre detrás de HTTPS.
+
+### Puesta en marcha en el servidor
+
+1. Copia de seguridad y `npx prisma migrate deploy` (aplica `20261122_mcp_fase_1`: tablas `mcp_tokens` y `change_log`).
+2. Crea un acceso: `node scripts/mcp-token.mjs crear <email> "Claude"`. El token se muestra una sola vez. Para ver o revocar accesos: `listar <email>` y `revocar <id>`.
+3. Conecta Claude Code: `claude mcp add --transport http nextfinance https://<tu-dominio>/api/mcp --header "Authorization: Bearer <token>"`.
+
+Claude en la web, el escritorio y el móvil necesita que el conector inicie sesión con OAuth; queda para la tarea NF-6.
+
+### Prueba de extremo a extremo
+
+`test/mcp.integration.test.mjs` recorre las herramientas contra una app en marcha. Crea y borra registros, así que úsala solo con una base de datos de pruebas:
+
+```bash
+MCP_TEST_URL=http://localhost:3000/api/mcp MCP_TEST_TOKEN=<token de pruebas> MCP_TEST_FOREIGN_BUSINESS=<id de empresa de otro usuario> node --test test/mcp.integration.test.mjs
+```
