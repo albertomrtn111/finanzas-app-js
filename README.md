@@ -41,12 +41,13 @@ npx prisma validate
 `/api/mcp` es un servidor MCP (HTTP, sin sesión) que da a Claude u otra IA lectura y escritura sobre los datos personales y de cada empresa del usuario dueño del token.
 
 - **Herramientas:** contexto y espacios; búsqueda, resumen (desviación frente al presupuesto, tasa de ahorro, comparación con el periodo anterior) y patrimonio personal; crear, editar y borrar gastos, ingresos, saldos, inversiones, categorías, presupuestos y productos; resumen, operaciones, movimientos, cuentas, previsiones y presupuestos de empresa; historial de cambios y deshacer.
+- **Importar capturas y extractos:** la IA lee la imagen o el fichero y llama a `preparar_importacion`, que no guarda nada y devuelve por fila los posibles duplicados (`seguro` o `posible`), las filas repetidas dentro del lote, la clasificación sugerida según el historial y las facturas pendientes que podría saldar. Tras la confirmación del usuario, `importar_movimientos` lo guarda todo de una vez (o nada, si alguna fila es inválida), omite lo ya registrado y deja la importación en `import_batches`. `ver_importaciones` las lista, y `deshacer_cambio` con su lote la deshace entera. El prompt `importar_extracto` guía el proceso.
 - **Registro de cambios:** cada escritura queda en `change_log` con el estado anterior y posterior. `deshacer_cambio` revierte por id o por lote, y se detiene si el registro cambió después, salvo que se indique `forzar`. Los adjuntos de una operación borrada no se recuperan.
 - **Acceso:** cada petición lleva `Authorization: Bearer <token>`. En `mcp_tokens` solo se guarda el hash del token. Publícalo siempre detrás de HTTPS.
 
 ### Puesta en marcha en el servidor
 
-1. Copia de seguridad y `npx prisma migrate deploy` (aplica `20261122_mcp_fase_1`: tablas `mcp_tokens` y `change_log`).
+1. Copia de seguridad y `npx prisma migrate deploy` (aplica `20261122_mcp_fase_1`, con las tablas `mcp_tokens` y `change_log`, y `20261122_mcp_fase_2`, con `import_batches`).
 2. Crea un acceso: `node scripts/mcp-token.mjs crear <email> "Claude"`. El token se muestra una sola vez. Para ver o revocar accesos: `listar <email>` y `revocar <id>`.
 3. Conecta Claude Code: `claude mcp add --transport http nextfinance https://<tu-dominio>/api/mcp --header "Authorization: Bearer <token>"`.
 

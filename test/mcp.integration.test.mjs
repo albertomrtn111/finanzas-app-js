@@ -175,4 +175,80 @@ test('MCP de extremo a extremo', { skip }, async t => {
         const blocked = await call(client, 'borrar_operacion_empresa', { empresa_id: empresaId, id: invoice.operacion.id });
         assert.match(blocked.error, /Desvincula/);
     });
+
+    await t.test('importación de una captura: duplicados, sugerencias, guardado en bloque y deshacer', async () => {
+        const config = await call(client, 'ver_configuracion_empresa', { empresa_id: empresaId });
+        const bankId = config.cuentas.find(a => a.name === 'Banco empresa').id;
+        const invoice = await call(client, 'guardar_operacion_empresa', {
+            empresa_id: empresaId, direction: 'INCOME', description: 'Mantenimiento web', category: 'Servicios', occurred_on: '2026-11-14',
+            counterparty_name: 'Cliente SL', tax_lines: [{ base: 500, vat_rate: 0 }],
+        });
+        const filas = [
+            { fecha: '2026-11-05', importe: -45.5, concepto: 'COMPRA TARJ. 5402XXXXXXXX1234 MERCADONA VALENCIA', cuenta: 'BBVA' },
+            { fecha: '2026-11-12', importe: '-12,30', concepto: 'NETFLIX.COM', cuenta: 'BBVA' },
+            { fecha: '2026-11-12', importe: '-12,30', concepto: 'NETFLIX.COM', cuenta: 'BBVA' },
+            { fecha: '2026-11-15', importe: 500, concepto: 'TRANSF RECIBIDA CLIENTE SL', cuenta: 'Santander empresa' },
+        ];
+        const prep = await call(client, 'preparar_importacion', { filas });
+        assert.deepEqual(prep.resumen.con_duplicado_seguro, [1]);
+        assert.deepEqual(prep.resumen.repetidas_en_lote, [3]);
+        assert.equal(prep.filas[0].duplicados[0].tipo, 'gasto');
+        assert.equal(prep.filas[0].sugerencia.category, 'Supermercado');
+        assert.equal(prep.filas[1].sugerencia, null);
+        assert.equal(prep.filas[3].facturas_candidatas[0].activity_id, invoice.operacion.id);
+        assert.equal(prep.filas[3].facturas_candidatas[0].importe_exacto, true);
+        assert.ok(prep.opciones.empresas[0].cuentas.some(a => a.id === bankId));
+
+        const clasificadas = [
+            { ...filas[0], destino: 'gasto', category: 'Supermercado' },
+            { ...filas[1], destino: 'gasto', category: 'Suscripciones', payment_method: 'Tarjeta' },
+            { ...filas[2], destino: 'gasto', category: 'Suscripciones', payment_method: 'Tarjeta' },
+            { ...filas[3], destino: 'movimiento_empresa', empresa_id: empresaId, account_id: bankId, allocations: [{ activity_id: invoice.operacion.id, amount: 500 }] },
+        ];
+        const invalid = await call(client, 'importar_movimientos', { nombre: 'Inválida', filas: [clasificadas[1], { ...clasificadas[3], account_id: undefined }] });
+        assert.match(invalid.error, /Fila 2: falta account_id/);
+        const unchanged = await call(client, 'buscar_movimientos_personales', { tipo: 'gasto', texto: 'netflix' });
+        assert.equal(unchanged.gastos.numero, 0);
+
+        const imported = await call(client, 'importar_movimientos', { nombre: 'BBVA y Santander noviembre', filas: clasificadas });
+        assert.equal(imported.importadas, 2);
+        assert.deepEqual(imported.omitidas.map(o => o.fila), [1, 3]);
+        assert.match(imported.lote, /^importacion-/);
+        const netflix = await call(client, 'buscar_movimientos_personales', { tipo: 'gasto', texto: 'netflix' });
+        assert.equal(netflix.gastos.registros[0].amount, '12.3');
+        assert.equal(netflix.gastos.registros[0].notes, 'NETFLIX.COM');
+        const settled = await call(client, 'buscar_operaciones_empresa', { empresa_id: empresaId, solo_pendientes: true });
+        assert.equal(settled.length, 0);
+
+        const again = await call(client, 'importar_movimientos', { nombre: 'Repetida', filas: [clasificadas[1]] });
+        assert.equal(again.importadas, 0);
+        assert.equal(again.omitidas[0].motivo, 'ya registrada');
+
+        const learned = await call(client, 'preparar_importacion', { filas: [{ fecha: '2026-11-20', importe: -12.3, concepto: 'Netflix.com Amsterdam', cuenta: 'bbva' }] });
+        assert.equal(learned.filas[0].sugerencia.category, 'Suscripciones');
+        assert.equal(learned.filas[0].sugerencia.payment_method, 'Tarjeta');
+        assert.equal(learned.filas[0].cuenta_habitual.espacio, 'personal');
+
+        const list = await call(client, 'ver_importaciones', {});
+        assert.equal(list[0].estado, 'vigente');
+        assert.equal(list[0].importadas, 2);
+
+        const undo = await call(client, 'deshacer_cambio', { lote: imported.lote });
+        assert.equal(undo.reverted.length, 3);
+        const after = await call(client, 'ver_importaciones', { lote: imported.lote });
+        assert.equal(after[0].estado, 'deshecha');
+        const reopened = await call(client, 'buscar_operaciones_empresa', { empresa_id: empresaId, solo_pendientes: true });
+        assert.equal(reopened.length, 1);
+        const personal = await call(client, 'ver_configuracion_personal');
+        assert.ok(!personal.categorias_gasto.some(c => c.nombre === 'Suscripciones'));
+        const forgotten = await call(client, 'preparar_importacion', { filas: [{ fecha: '2026-11-20', importe: -12.3, concepto: 'Netflix.com', cuenta: 'bbva' }] });
+        assert.equal(forgotten.filas[0].sugerencia, null);
+    });
+
+    await t.test('ofrece la guía de importación como prompt', async () => {
+        const { prompts } = await client.listPrompts();
+        assert.ok(prompts.some(p => p.name === 'importar_extracto'));
+        const prompt = await client.getPrompt({ name: 'importar_extracto' });
+        assert.match(prompt.messages[0].content.text, /preparar_importacion/);
+    });
 });
