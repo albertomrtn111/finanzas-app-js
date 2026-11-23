@@ -144,6 +144,6 @@ export async function revertChanges(ctx, { ids = [], batchId = null, force = fal
             done.push({ cambio: entry.id, resultado: message });
         }
         return done;
-    });
+    }, { timeout: 120000, maxWait: 10000 });
     return { reverted: results };
 }

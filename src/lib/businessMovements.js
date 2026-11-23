@@ -11,7 +11,7 @@ function validId(value) {
     return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-class MovementError extends Error {
+export class MovementError extends Error {
     constructor(message, status = 400) {
         super(message);
         this.status = status;
@@ -42,43 +42,46 @@ export async function saveAllocations(tx, businessId, movement, raw) {
     return null;
 }
 
-// Crea un cobro, pago o traspaso. Devuelve { movements } o { error, status }.
-export async function createBusinessMovement(businessId, body) {
+// Crea un cobro, pago o traspaso dentro de una transacción ya abierta.
+// Devuelve { movements, transfer } o lanza MovementError.
+export async function insertBusinessMovement(tx, businessId, body) {
     const date = appDate(body.date);
     const amount = cents(body.amount);
     const description = cleanText(body.description, 240, true);
     if (!date || !amount || !description || body.date > todayInMadrid()) {
-        return { error: 'Completa fecha, concepto e importe válido. Para fechas futuras usa Previsión.', status: 400 };
+        throw new MovementError('Completa fecha, concepto e importe válido. Para fechas futuras usa Previsión.');
     }
 
     if (body.flow_type === 'TRANSFER') {
         const fromId = validId(body.from_account_id);
         const toId = validId(body.to_account_id);
-        if (!fromId || !toId || fromId === toId) return { error: 'Elige dos cuentas distintas', status: 400 };
-        const accounts = await prisma.businessAccount.findMany({ where: { id: { in: [fromId, toId] }, business_id: businessId } });
-        if (accounts.length !== 2 || accounts.some(a => date < a.opening_on)) return { error: 'Cuentas o fecha inválidas', status: 400 };
+        if (!fromId || !toId || fromId === toId) throw new MovementError('Elige dos cuentas distintas');
+        const accounts = await tx.businessAccount.findMany({ where: { id: { in: [fromId, toId] }, business_id: businessId } });
+        if (accounts.length !== 2 || accounts.some(a => date < a.opening_on)) throw new MovementError('Cuentas o fecha inválidas');
         const group = randomUUID();
-        const movements = await prisma.$transaction(async tx => [
+        const movements = [
             await tx.businessMovement.create({ data: { business_id: businessId, account_id: fromId, date, amount: money(-amount), description, flow_type: 'TRANSFER', transfer_group: group } }),
             await tx.businessMovement.create({ data: { business_id: businessId, account_id: toId, date, amount: money(amount), description, flow_type: 'TRANSFER', transfer_group: group } }),
-        ]);
+        ];
         return { movements, transfer: true };
     }
 
     const accountId = validId(body.account_id);
     const flowType = body.flow_type || 'OPERATING';
     const sign = body.direction === 'OUT' ? -1 : body.direction === 'IN' ? 1 : 0;
-    if (!accountId || !FLOW_TYPES.includes(flowType) || !sign) return { error: 'Cuenta, sentido o tipo de flujo inválidos', status: 400 };
-    const account = await prisma.businessAccount.findFirst({ where: { id: accountId, business_id: businessId } });
-    if (!account || date < account.opening_on) return { error: 'La cuenta no existe o el movimiento precede a su saldo inicial', status: 400 };
+    if (!accountId || !FLOW_TYPES.includes(flowType) || !sign) throw new MovementError('Cuenta, sentido o tipo de flujo inválidos');
+    const account = await tx.businessAccount.findFirst({ where: { id: accountId, business_id: businessId } });
+    if (!account || date < account.opening_on) throw new MovementError('La cuenta no existe o el movimiento precede a su saldo inicial');
+    const created = await tx.businessMovement.create({ data: { business_id: businessId, account_id: accountId, date, amount: money(sign * amount), description, flow_type: flowType } });
+    const error = await saveAllocations(tx, businessId, created, body.allocations || []);
+    if (error) throw new MovementError(error);
+    return { movements: [created], transfer: false };
+}
+
+// Crea un cobro, pago o traspaso en su propia transacción. Devuelve { movements, transfer } o { error, status }.
+export async function createBusinessMovement(businessId, body) {
     try {
-        const movement = await prisma.$transaction(async tx => {
-            const created = await tx.businessMovement.create({ data: { business_id: businessId, account_id: accountId, date, amount: money(sign * amount), description, flow_type: flowType } });
-            const error = await saveAllocations(tx, businessId, created, body.allocations || []);
-            if (error) throw new MovementError(error);
-            return created;
-        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-        return { movements: [movement], transfer: false };
+        return await prisma.$transaction(tx => insertBusinessMovement(tx, businessId, body), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
         if (error.code === 'P2034') return { error: 'Otro cambio modificó los pendientes. Vuelve a intentarlo.', status: 409 };
         if (error instanceof MovementError) return { error: error.message, status: error.status };

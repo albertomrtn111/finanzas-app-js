@@ -34,6 +34,7 @@ model User {
   businesses          Business[]
   mcpTokens           McpToken[]
   changeLogs          ChangeLog[]
+  importBatches       ImportBatch[]
 
   @@map("users")
 }
@@ -380,4 +381,24 @@ model ChangeLog {
   @@index([user_id, created_at])
   @@index([batch_id])
   @@map("change_log")
+}
+
+// Importaciones de extractos y capturas hechas desde el MCP. Guarda cada fila con la clasificación
+// elegida para reutilizarla al clasificar las siguientes. Se deshace con su lote del registro de cambios.
+model ImportBatch {
+  id            Int      @id @default(autoincrement())
+  user_id       Int
+  batch_id      String   @unique @db.VarChar(80)
+  name          String   @db.VarChar(160)
+  source        String   @default("CAPTURA") @db.VarChar(16)
+  rows_total    Int
+  rows_imported Int
+  rows_skipped  Int
+  rows          Json
+  created_at    DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@map("import_batches")
 }
