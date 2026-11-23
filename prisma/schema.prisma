@@ -32,6 +32,8 @@ model User {
   cashSnapshots       CashSnapshot[]
   investmentAssetTypes InvestmentAssetType[]
   businesses          Business[]
+  mcpTokens           McpToken[]
+  changeLogs          ChangeLog[]
 
   @@map("users")
 }
@@ -338,4 +340,44 @@ model BusinessBudget {
   @@unique([business_id, period, direction, category])
   @@index([business_id, period])
   @@map("business_budgets")
+}
+
+// Accesos personales para el servidor MCP. Solo se guarda el hash del token.
+model McpToken {
+  id           Int       @id @default(autoincrement())
+  user_id      Int
+  name         String    @db.VarChar(80)
+  token_hash   String    @unique @db.VarChar(64)
+  token_prefix String    @db.VarChar(16)
+  created_at   DateTime  @default(now())
+  last_used_at DateTime?
+  revoked_at   DateTime?
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("mcp_tokens")
+}
+
+// Registro de cambios hechos desde el MCP, con el estado anterior y posterior para poder deshacerlos.
+model ChangeLog {
+  id          Int       @id @default(autoincrement())
+  user_id     Int
+  business_id Int?
+  source      String    @default("MCP") @db.VarChar(16)
+  tool        String    @db.VarChar(80)
+  entity      String    @db.VarChar(40)
+  entity_id   Int?
+  action      String    @db.VarChar(12)
+  before      Json?
+  after       Json?
+  batch_id    String?   @db.VarChar(80)
+  reverted_at DateTime?
+  created_at  DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@index([batch_id])
+  @@map("change_log")
 }
