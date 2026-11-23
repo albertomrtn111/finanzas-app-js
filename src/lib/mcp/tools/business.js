@@ -2,7 +2,7 @@ import * as z from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../../db.js';
 import { activityInput, appDate, cents, cleanText, money, outstanding, summarizeBusiness, todayInMadrid } from '../../business.js';
-import { FLOW_TYPES, createBusinessMovement, replaceAllocations } from '../../businessMovements.js';
+import { FLOW_TYPES, MovementError, insertBusinessMovement, replaceAllocations } from '../../businessMovements.js';
 import { logChange } from '../changeLog.js';
 import { dateKey } from '../serialize.js';
 import { DELETE, READ, ToolError, WRITE, amountText, dateFilter, defineTool, fecha, id, importe, requireBusiness } from '../toolkit.js';
@@ -219,15 +219,22 @@ export function registerBusinessTools(server, ctx) {
     }, async ({ empresa_id, ...input }, c) => {
         const business = await requireBusiness(c, empresa_id);
         const body = { ...input, amount: amountText(input.amount), allocations: (input.allocations || []).map(a => ({ ...a, amount: amountText(a.amount) })) };
-        const result = await createBusinessMovement(business.id, body);
-        if (result.error) throw new ToolError(result.error);
-        const batchId = result.transfer ? `traspaso-${result.movements[0].transfer_group}` : null;
-        const logs = [];
-        for (const movement of result.movements) {
-            const full = await prisma.businessMovement.findUnique({ where: { id: movement.id }, include: { allocations: true } });
-            const { allocations: _a, ...after } = full;
-            logs.push((await logChange(prisma, c, { entity: 'business_movement', entityId: movement.id, action: 'CREATE', after, businessId: business.id, batchId })).id);
-        }
+        // El movimiento y su registro de cambios se guardan juntos: o los dos o ninguno.
+        const { result, batchId, logs } = await prisma.$transaction(async tx => {
+            let created;
+            try {
+                created = await insertBusinessMovement(tx, business.id, body);
+            } catch (error) {
+                if (error instanceof MovementError) throw new ToolError(error.message);
+                throw error;
+            }
+            const batch = created.transfer ? `traspaso-${created.movements[0].transfer_group}` : null;
+            const ids = [];
+            for (const movement of created.movements) {
+                ids.push((await logChange(tx, c, { entity: 'business_movement', entityId: movement.id, action: 'CREATE', after: movement, businessId: business.id, batchId: batch })).id);
+            }
+            return { result: created, batchId: batch, logs: ids };
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         return { accion: result.transfer ? 'traspaso registrado' : 'movimiento registrado', cambios: logs, lote: batchId, movimientos: result.movements };
     });
 

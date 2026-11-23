@@ -3090,3 +3090,20 @@ textarea.form-input {
   .business-header-actions { width: 100%; }
   .business-flow-row { grid-template-columns: 2rem minmax(0, 1fr) 5.5rem; }
 }
+
+/* Conectar la IA (MCP) en Mi Perfil */
+.mcp-body { display: flex; flex-direction: column; gap: 1.25rem; }
+.mcp-copy { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.mcp-copy-row { display: flex; gap: 0.5rem; align-items: flex-start; min-width: 0; }
+.mcp-code {
+  flex: 1; min-width: 0; margin: 0; padding: 0.65rem 0.8rem;
+  background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem;
+  white-space: pre-wrap; word-break: break-all;
+}
+.mcp-copy-btn { flex-shrink: 0; }
+.mcp-create { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; }
+.mcp-create .form-group { flex: 1; min-width: 220px; margin-bottom: 0; }
+.mcp-new { display: flex; flex-direction: column; gap: 0.5rem; }
+.mcp-steps ol { padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.mcp-steps h4 { margin-bottom: 0.5rem; }

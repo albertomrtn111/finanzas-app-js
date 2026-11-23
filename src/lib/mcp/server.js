@@ -33,7 +33,7 @@ const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 export async function authenticateMcpRequest(request) {
     const token = bearerToken(request);
     if (!token) return null;
-    const record = await prisma.mcpToken.findUnique({ where: { token_hash: hashToken(token) }, include: { user: true } });
+    const record = await prisma.mcpToken.findUnique({ where: { token_hash: hashToken(token) }, include: { user: { select: { id: true, name: true, account_mode: true } } } });
     if (!record || record.revoked_at) return null;
     if (!record.last_used_at || Date.now() - record.last_used_at.getTime() > TOUCH_INTERVAL_MS) {
         await prisma.mcpToken.update({ where: { id: record.id }, data: { last_used_at: new Date() } }).catch(() => {});
