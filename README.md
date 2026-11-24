@@ -58,6 +58,43 @@ Sin Docker vale cualquier Postgres local de usar y tirar; por ejemplo, PGlite co
 - **Sesiones:** cada lectura de la sesión se refresca desde la base de datos, así que el nombre, el tipo de cuenta y el onboarding nunca se quedan desfasados. `users.session_version` sube al cambiar la contraseña o al pulsar «Cerrar sesión en todos los dispositivos» (Mi Perfil › Seguridad), y entonces todas las sesiones anteriores dejan de valer. Los accesos de la IA (MCP) se revocan aparte.
 - **Google:** si alguien entra con Google en una cuenta que tenía contraseña y aún no estaba vinculada, se borra esa contraseña y se cierran las demás sesiones, porque pudo ponerla cualquiera que registrase antes ese email. Desde Mi Perfil se puede crear una nueva.
 
+## Despliegue
+
+La app corre en un servidor propio con Docker y Traefik (`/srv/finanzas-app-js`, dominio `finanzas.ascenttech.cloud`). `Dockerfile` y `docker-compose.yml` están en el repositorio. El `.env` con los secretos solo existe en el servidor. Fusionar en `main` no publica nada: se despliega a mano con un solo comando.
+
+```bash
+ssh <servidor>
+cd /srv/finanzas-app-js
+scripts/deploy.sh --plan     # qué cambiaría, sin tocar nada
+scripts/deploy.sh            # despliega origin/main
+```
+
+**Qué hace `scripts/deploy.sh`:**
+
+1. Copia de la base de datos con `scripts/backup/backup-db.sh`.
+2. Guarda la imagen en marcha etiquetada con su commit.
+3. Avanza el código hasta `origin/main`, solo si es un avance rápido.
+4. Construye la imagen `finanzas-app-js-web:<commit>`.
+5. Aplica las migraciones pendientes.
+6. Arranca la versión nueva y espera a que `/api/health` responda sana con esa versión.
+
+**Vuelta atrás:**
+- Si falla la construcción, las migraciones o la comprobación de salud, vuelve solo al código y a la imagen anteriores.
+- Las migraciones no se deshacen solas: son solo hacia delante, y para eso está la copia previa.
+- Para volver a mano a una versión anterior: `scripts/deploy.sh --volver <commit>`. Se conservan las 5 últimas imágenes.
+
+**Comprobaciones:**
+- `/api/health` dice si la app y la base de datos responden y qué versión está en marcha. No pide sesión y no da detalles internos.
+- Docker la usa como comprobación de salud del contenedor, y sirve también para un monitor externo.
+- Los errores del servidor quedan como una línea JSON cada uno en los registros: `docker logs finanzas_next 2>&1 | grep '"nivel":"error"'`.
+- Si falta `DATABASE_URL`, `NEXTAUTH_SECRET` o `NEXTAUTH_URL`, la app no arranca y el despliegue vuelve atrás.
+
+**Comprobaciones automáticas (CI):** en cada PR, GitHub Actions ejecuta:
+- lint, pruebas unitarias y compilación;
+- `npm audit` de las dependencias de producción;
+- `scripts/check-migrations.mjs`, que comprueba que las migraciones coinciden con `schema.prisma`;
+- `npm run test:integration` sobre un Postgres limpio.
+
 ## Copias de seguridad
 
 La base de datos de producción se copia cada día con `scripts/backup/backup-db.sh`.
