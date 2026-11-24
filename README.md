@@ -39,6 +39,38 @@ npx prisma validate
 - **Sesiones:** cada lectura de la sesión se refresca desde la base de datos, así que el nombre, el tipo de cuenta y el onboarding nunca se quedan desfasados. `users.session_version` sube al cambiar la contraseña o al pulsar «Cerrar sesión en todos los dispositivos» (Mi Perfil › Seguridad), y entonces todas las sesiones anteriores dejan de valer. Los accesos de la IA (MCP) se revocan aparte.
 - **Google:** si alguien entra con Google en una cuenta que tenía contraseña y aún no estaba vinculada, se borra esa contraseña y se cierran las demás sesiones, porque pudo ponerla cualquiera que registrase antes ese email. Desde Mi Perfil se puede crear una nueva.
 
+## Copias de seguridad
+
+La base de datos de producción se copia cada día con `scripts/backup/backup-db.sh`.
+
+- **Qué hace:**
+  - Lanza un `pg_dump` del contenedor `finanzas_postgres`.
+  - Comprueba que la copia se puede leer y que tiene todas las tablas.
+  - Guarda cuántas filas tenía cada tabla (`.filas`) y su suma de comprobación (`.sha256`).
+  - Rota las copias: conserva 7 diarias, 4 semanales (de los domingos) y 12 mensuales (de los días 1).
+- **Dónde:** `/srv/finanzas-app-js-backups/automaticas`, solo legible por el usuario `alberto`. El resultado de la última copia queda en `ultima-copia.txt`; si falla, en `ultima-copia-ERROR.txt`.
+- **Fuera del servidor:** si `/srv/finanzas-app-js-backups/backup.env` define `BACKUP_REMOTE` (un destino de rclone) y `BACKUP_PASSPHRASE_FILE`, sube además una copia cifrada con gpg. Ese fichero no va al repositorio.
+- **Prueba de restauración:** `scripts/backup/restore-test.sh` restaura la última copia en un Postgres temporal sin red y comprueba que cada tabla tiene las mismas filas que al copiarla. No toca la base de datos real. Detecta copias cortadas, alteradas o incompletas. El resultado queda en `ultima-restauracion.txt`.
+
+Tareas programadas en el servidor (`crontab -e` del usuario `alberto`):
+
+```cron
+15 3 * * * /srv/finanzas-app-js/scripts/backup/backup-db.sh 2>&1 | logger -t finanzas-backup
+40 4 1 * * /srv/finanzas-app-js/scripts/backup/restore-test.sh 2>&1 | logger -t finanzas-backup
+```
+
+Los registros se consultan con `journalctl -t finanzas-backup`.
+
+**Restaurar de verdad** (por ejemplo, tras perder el servidor):
+
+1. Para la app con `docker compose stop web`.
+2. Haz una copia del estado actual, aunque esté dañado.
+3. Recupera la copia elegida:
+   ```bash
+   docker exec -i finanzas_postgres pg_restore -U appuser -d finanzas --clean --if-exists --no-owner < copia.dump
+   ```
+4. Arranca la app y comprueba que todo está en su sitio.
+
 ## Empresa
 
 - En el registro se puede elegir Personal, Empresa o Ambas. Cada empresa tiene cuentas, operaciones por devengo, movimientos de dinero, facturas externas registradas, previsiones e IVA separados de los datos personales.
