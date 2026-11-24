@@ -245,6 +245,24 @@ test('MCP de extremo a extremo', { skip }, async t => {
         assert.equal(forgotten.filas[0].sugerencia, null);
     });
 
+    await t.test('deshacer no deja una factura cobrada dos veces', async () => {
+        const config = await call(client, 'ver_configuracion_empresa', { empresa_id: empresaId });
+        const bankId = config.cuentas.find(a => a.name === 'Banco empresa').id;
+        const inv = await call(client, 'guardar_operacion_empresa', { empresa_id: empresaId, direction: 'INCOME', description: 'Doble', category: 'Servicios', occurred_on: '2026-11-16', tax_lines: [{ base: 80, vat_rate: 0 }] });
+        const first = await call(client, 'registrar_movimiento_empresa', { empresa_id: empresaId, date: '2026-11-17', amount: 80, description: 'Cobro 1', direction: 'IN', account_id: bankId, allocations: [{ activity_id: inv.operacion.id, amount: 80 }] });
+        assert.equal(first.cambios.length, 1);
+        const unlink = await call(client, 'vincular_movimiento_empresa', { empresa_id: empresaId, movimiento_id: first.movimientos[0].id, allocations: [] });
+        await call(client, 'registrar_movimiento_empresa', { empresa_id: empresaId, date: '2026-11-18', amount: 80, description: 'Cobro 2', direction: 'IN', account_id: bankId, allocations: [{ activity_id: inv.operacion.id, amount: 80 }] });
+        const refused = await call(client, 'deshacer_cambio', { ids: [unlink.cambio] });
+        assert.match(refused.error, /supera el pendiente/);
+        const again = await call(client, 'deshacer_cambio', { ids: [unlink.cambio] });
+        assert.match(again.error, /supera el pendiente/);
+        const invalid = await call(client, 'registrar_movimiento_empresa', { empresa_id: empresaId, date: '2026-11-18', amount: 5, description: 'x', direction: 'IN', account_id: bankId, allocations: [{ activity_id: inv.operacion.id, amount: 5 }] });
+        assert.match(invalid.error, /supera el pendiente/);
+        const moves = await call(client, 'buscar_movimientos_empresa', { empresa_id: empresaId, texto: 'x' });
+        assert.equal(moves.filter(m => m.description === 'x').length, 0);
+    });
+
     await t.test('ofrece la guía de importación como prompt', async () => {
         const { prompts } = await client.listPrompts();
         assert.ok(prompts.some(p => p.name === 'importar_extracto'));

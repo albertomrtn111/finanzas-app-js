@@ -44,6 +44,8 @@ npx prisma validate
 - **Importar capturas y extractos:** la IA lee la imagen o el fichero y llama a `preparar_importacion`, que no guarda nada y devuelve por fila los posibles duplicados (`seguro` o `posible`), las filas repetidas dentro del lote, la clasificación sugerida según el historial y las facturas pendientes que podría saldar. Tras la confirmación del usuario, `importar_movimientos` lo guarda todo de una vez (o nada, si alguna fila es inválida), omite lo ya registrado y deja la importación en `import_batches`. `ver_importaciones` las lista, y `deshacer_cambio` con su lote la deshace entera. El prompt `importar_extracto` guía el proceso.
 - **Registro de cambios:** cada escritura queda en `change_log` con el estado anterior y posterior. `deshacer_cambio` revierte por id o por lote, y se detiene si el registro cambió después, salvo que se indique `forzar`. Los adjuntos de una operación borrada no se recuperan.
 - **Acceso:** cada petición lleva `Authorization: Bearer <token>`. En `mcp_tokens` solo se guarda el hash del token. Publícalo siempre detrás de HTTPS.
+- **Desde la app:** en Mi Perfil › «Conectar tu IA (MCP)» cada usuario ve la dirección del MCP, crea sus accesos (el token se muestra una sola vez), copia el comando para Claude Code o la configuración JSON y revoca los que ya no use. Máximo 10 accesos activos por usuario.
+- **Aislamiento:** cada acceso solo lee y escribe los datos de su usuario (lo personal y sus empresas). `test/mcp.isolation.test.mjs` lo comprueba con dos usuarios.
 
 ### Puesta en marcha en el servidor
 
@@ -59,4 +61,5 @@ Claude en la web, el escritorio y el móvil necesita que el conector inicie sesi
 
 ```bash
 MCP_TEST_URL=http://localhost:3000/api/mcp MCP_TEST_TOKEN=<token de pruebas> MCP_TEST_FOREIGN_BUSINESS=<id de empresa de otro usuario> node --test test/mcp.integration.test.mjs
+MCP_TEST_URL=http://localhost:3000/api/mcp MCP_TEST_TOKEN=<token de A> MCP_TEST_TOKEN_OTRO=<token de B> node --test test/mcp.isolation.test.mjs
 ```

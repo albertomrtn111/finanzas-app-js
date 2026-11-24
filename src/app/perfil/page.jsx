@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import McpAccess from '@/components/McpAccess';
 
 export default function PerfilPage({ businessContext = false }) {
     const { update: updateSession } = useSession();
@@ -160,7 +161,7 @@ export default function PerfilPage({ businessContext = false }) {
         <div className="page-container">
             <div className="page-header">
                 <h1 className="page-title">Mi Perfil</h1>
-                <p className="page-subtitle">Gestiona tu acceso y cambia de espacio financiero</p>
+                <p className="page-subtitle">Gestiona tu acceso, cambia de espacio financiero y conecta tu IA</p>
             </div>
 
             <div className="card business-spaced"><div className="card-header"><h2>Espacios financieros</h2></div><div className="card-body business-list">
@@ -173,6 +174,8 @@ export default function PerfilPage({ businessContext = false }) {
                     <button className="btn btn-primary business-full" disabled={creatingBusiness}>{creatingBusiness ? 'Creando...' : 'Crear cuenta de empresa'}</button>
                 </form>}
             </div></div>
+
+            <McpAccess />
 
             <div className="grid grid-2 gap-lg">
                 {/* Profile Info Card */}

@@ -1,5 +1,6 @@
 // Registro de cambios del MCP y su deshacer.
 import prisma from '../db.js';
+import { saveAllocations } from '../businessMovements.js';
 import { snapshot } from './serialize.js';
 
 // Entidad registrada → modelo de Prisma y ámbito de propiedad.
@@ -85,10 +86,11 @@ async function revertEntry(tx, entry, force) {
 
     if (entry.entity === 'business_movement_links') {
         const movementId = entry.entity_id;
-        await tx.businessAllocation.deleteMany({ where: { movement_id: movementId, business_id: entry.business_id } });
-        for (const link of entry.before || []) {
-            await tx.businessAllocation.create({ data: { business_id: entry.business_id, movement_id: movementId, activity_id: link.activity_id, amount: link.amount } });
-        }
+        const movement = await tx.businessMovement.findFirst({ where: { id: movementId, business_id: entry.business_id } });
+        if (!movement) throw new Error(`El movimiento ${movementId} ya no existe`);
+        // Se vuelven a validar: las facturas pueden haberse saldado con otros movimientos después.
+        const error = await saveAllocations(tx, entry.business_id, movement, (entry.before || []).map(link => ({ activity_id: link.activity_id, amount: String(link.amount) })));
+        if (error) throw new Error(`No se pueden restaurar los vínculos del movimiento ${movementId}: ${error}`);
         return `Restaurados los vínculos del movimiento ${movementId}`;
     }
 
@@ -120,11 +122,10 @@ async function revertEntry(tx, entry, force) {
     if (entry.action === 'DELETE') {
         if (current) return `El ${config.label} ${id} ya existe`;
         const { allocations, updated_at: _updated, ...data } = entry.before;
-        await model.create({ data });
-        if (entry.entity === 'business_movement' && Array.isArray(allocations)) {
-            for (const link of allocations) {
-                await tx.businessAllocation.create({ data: { business_id: link.business_id, movement_id: link.movement_id, activity_id: link.activity_id, amount: link.amount } });
-            }
+        const restored = await model.create({ data });
+        if (entry.entity === 'business_movement' && Array.isArray(allocations) && allocations.length) {
+            const error = await saveAllocations(tx, entry.business_id, restored, allocations.map(link => ({ activity_id: link.activity_id, amount: String(link.amount) })));
+            if (error) throw new Error(`No se puede recuperar el ${config.label} ${id} con sus facturas: ${error}`);
         }
         return `Recuperado el ${config.label} ${id}`;
     }
@@ -139,8 +140,10 @@ export async function revertChanges(ctx, { ids = [], batchId = null, force = fal
     const results = await prisma.$transaction(async tx => {
         const done = [];
         for (const entry of entries) {
+            // Se marca primero dentro de la transacción: si otra petición ya lo deshizo, se para aquí.
+            const claimed = await tx.changeLog.updateMany({ where: { id: entry.id, user_id: ctx.userId, reverted_at: null }, data: { reverted_at: new Date() } });
+            if (!claimed.count) throw new Error(`El cambio ${entry.id} ya se ha deshecho`);
             const message = await revertEntry(tx, entry, force);
-            await tx.changeLog.update({ where: { id: entry.id }, data: { reverted_at: new Date() } });
             done.push({ cambio: entry.id, resultado: message });
         }
         return done;
