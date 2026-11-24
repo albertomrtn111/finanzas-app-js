@@ -20,10 +20,29 @@ El repositorio sigue conectado a un proyecto de Vercel que nunca ha llegado a de
 
 ```bash
 npm run lint
-npm test
+npm test               # pruebas unitarias, sin base de datos
 npm run build
 npx prisma validate
 ```
+
+### Pruebas de extremo a extremo
+
+`npm run test:integration` lo hace todo con un solo comando:
+
+1. Vacía la base de datos de `DATABASE_URL` y aplica las migraciones.
+2. Crea dos usuarios con empresa y un acceso MCP cada uno.
+3. Compila y arranca la app en un puerto libre.
+4. Ejecuta, una detrás de otra, todas las pruebas `test/*.integration.test.mjs`. Cubren el MCP, el aislamiento entre usuarios en el MCP y en la web, el acceso y los adjuntos.
+
+**Borra la base de datos entera.** Por eso solo acepta bases de datos locales, salvo que se indique `TEST_DATABASE_CONFIRM=borrar-todo`. Con Docker:
+
+```bash
+docker compose -f docker-compose.test.yml up -d
+DATABASE_URL=postgresql://postgres:postgres@localhost:54329/nextfinance_test npm run test:integration
+docker compose -f docker-compose.test.yml down
+```
+
+Sin Docker vale cualquier Postgres local de usar y tirar; por ejemplo, PGlite con `npx @electric-sql/pglite-socket` y `?connection_limit=1&pgbouncer=true` en la URL. Con `--sin-compilar` se reutiliza la última compilación.
 
 ## Datos
 
@@ -88,7 +107,7 @@ Los registros se consultan con `journalctl -t finanzas-backup`.
 - **Registro de cambios:** cada escritura queda en `change_log` con el estado anterior y posterior. `deshacer_cambio` revierte por id o por lote, y se detiene si el registro cambió después, salvo que se indique `forzar`. Los adjuntos de una operación borrada no se recuperan.
 - **Acceso:** cada petición lleva `Authorization: Bearer <token>`. En `mcp_tokens` solo se guarda el hash del token. Publícalo siempre detrás de HTTPS.
 - **Desde la app:** en Mi Perfil › «Conectar tu IA (MCP)» cada usuario ve la dirección del MCP, crea sus accesos (el token se muestra una sola vez), copia el comando para Claude Code o la configuración JSON y revoca los que ya no use. Máximo 10 accesos activos por usuario.
-- **Aislamiento:** cada acceso solo lee y escribe los datos de su usuario (lo personal y sus empresas). `test/mcp.isolation.test.mjs` lo comprueba con dos usuarios.
+- **Aislamiento:** cada acceso solo lee y escribe los datos de su usuario (lo personal y sus empresas). `test/mcp.isolation.integration.test.mjs` lo comprueba con dos usuarios.
 
 ### Puesta en marcha en el servidor
 
@@ -100,9 +119,4 @@ Claude en la web, el escritorio y el móvil necesita que el conector inicie sesi
 
 ### Prueba de extremo a extremo
 
-`test/mcp.integration.test.mjs` recorre las herramientas contra una app en marcha. Crea y borra registros, así que úsala solo con una base de datos de pruebas:
-
-```bash
-MCP_TEST_URL=http://localhost:3000/api/mcp MCP_TEST_TOKEN=<token de pruebas> MCP_TEST_FOREIGN_BUSINESS=<id de empresa de otro usuario> node --test test/mcp.integration.test.mjs
-MCP_TEST_URL=http://localhost:3000/api/mcp MCP_TEST_TOKEN=<token de A> MCP_TEST_TOKEN_OTRO=<token de B> node --test test/mcp.isolation.test.mjs
-```
+`test/mcp.integration.test.mjs` recorre todas las herramientas contra la app en marcha, y `test/mcp.isolation.integration.test.mjs` comprueba con dos usuarios que ninguno ve ni toca lo del otro. Las dos se ejecutan con `npm run test:integration` (ver «Comprobaciones»).
