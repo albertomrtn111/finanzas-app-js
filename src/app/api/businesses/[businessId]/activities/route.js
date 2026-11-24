@@ -69,6 +69,11 @@ export async function DELETE(request, { params }) {
     if (!id) return NextResponse.json({ error: 'Operación inválida' }, { status: 400 });
     const linked = await prisma.businessAllocation.count({ where: { business_id: context.business.id, activity_id: id } });
     if (linked) return NextResponse.json({ error: 'Desvincula sus cobros o pagos antes de eliminarla' }, { status: 409 });
+    // Borrar la operación borra sus documentos: hay que pedirlo de forma expresa.
+    const files = await prisma.businessAttachment.count({ where: { business_id: context.business.id, activity_id: id } });
+    if (files && new URL(request.url).searchParams.get('adjuntos') !== 'borrar') {
+        return NextResponse.json({ error: `Esta operación tiene ${files === 1 ? 'un documento adjunto' : `${files} documentos adjuntos`} que también se borrarían. Descárgalos antes si quieres conservarlos.`, adjuntos: files }, { status: 409 });
+    }
     const deleted = await prisma.businessActivity.deleteMany({ where: { id, business_id: context.business.id } });
     return deleted.count ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'Operación no encontrada' }, { status: 404 });
 }

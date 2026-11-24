@@ -4,52 +4,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { client as httpClient } from './helpers/httpClient.mjs';
 
 const base = process.env.AUTH_TEST_URL;
 const skip = !base;
 const run = randomUUID().slice(0, 8);
 const ip = name => `10.${run.charCodeAt(0) % 200}.${run.charCodeAt(1) % 200}.${name}`;
 
-function client(ipAddress) {
-    const jar = new Map();
-    const store = res => {
-        for (const raw of res.headers.getSetCookie()) {
-            const pair = raw.split(';')[0];
-            const at = pair.indexOf('=');
-            const value = pair.slice(at + 1);
-            if (!value || /expires=Thu, 01 Jan 1970/i.test(raw) || /max-age=0/i.test(raw)) jar.delete(pair.slice(0, at));
-            else jar.set(pair.slice(0, at), value);
-        }
-    };
-    const request = async (path, init = {}) => {
-        const res = await fetch(`${base}${path}`, {
-            redirect: 'manual',
-            ...init,
-            headers: { 'x-real-ip': ipAddress, cookie: [...jar].map(([k, v]) => `${k}=${v}`).join('; '), ...(init.headers || {}) },
-        });
-        store(res);
-        return res;
-    };
-    return {
-        request,
-        async login(email, password) {
-            const { csrfToken } = await (await request('/api/auth/csrf')).json();
-            const res = await request('/api/auth/callback/credentials', {
-                method: 'POST',
-                headers: { 'content-type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({ csrfToken, email, password, json: 'true' }),
-            });
-            const data = await res.json().catch(() => ({}));
-            return data.url ? new URL(data.url).searchParams.get('error') : 'sin respuesta';
-        },
-        async session() {
-            return (await request('/api/auth/session')).json();
-        },
-        json(path, method, body) {
-            return request(path, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-        },
-    };
-}
+const client = ipAddress => httpClient(base, ipAddress);
 
 async function register(c, email, password = 'clave-inicial-1') {
     return c.json('/api/auth/register', 'POST', { email, password, name: 'Prueba acceso', accountMode: 'PERSONAL' });

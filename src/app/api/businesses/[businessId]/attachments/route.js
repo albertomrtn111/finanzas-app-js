@@ -1,34 +1,42 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { businessContext, validId } from '@/lib/businessAccess';
-
-const MAX_BYTES = 5 * 1024 * 1024;
-const MIME = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/webp']);
-
-function matchesMime(data, mime) {
-    if (mime === 'application/pdf') return data.subarray(0, 5).toString() === '%PDF-';
-    if (mime === 'image/png') return data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    if (mime === 'image/jpeg') return data.length >= 3 && data[0] === 255 && data[1] === 216 && data[2] === 255;
-    if (mime === 'image/webp') return data.subarray(0, 4).toString() === 'RIFF' && data.subarray(8, 12).toString() === 'WEBP';
-    return false;
-}
+import { ATTACHMENT_MIME, FORM_OVERHEAD_BYTES, MAX_ATTACHMENT_BYTES, attachmentQuotaBytes, cleanFilename, contentDisposition, formatMb, matchesMime } from '@/lib/attachments';
 
 export async function POST(request, { params }) {
     const { businessId } = await params;
     const context = await businessContext(businessId);
     if (context.response) return context.response;
+
+    // Rechazar los envíos grandes antes de leerlos: formData() carga el cuerpo entero en memoria.
+    const declared = Number(request.headers.get('content-length'));
+    if (!Number.isFinite(declared) || declared <= 0) return NextResponse.json({ error: 'Falta el tamaño del envío' }, { status: 411 });
+    if (declared > MAX_ATTACHMENT_BYTES + FORM_OVERHEAD_BYTES) return NextResponse.json({ error: 'El archivo supera el máximo de 5 MB' }, { status: 413 });
+
     const form = await request.formData().catch(() => null);
     const activityId = validId(form?.get('activityId'));
     const file = form?.get('file');
-    if (!activityId || !file || typeof file.arrayBuffer !== 'function' || file.size < 1 || file.size > MAX_BYTES || !MIME.has(file.type)) {
+    if (!activityId || !file || typeof file.arrayBuffer !== 'function' || file.size < 1 || !ATTACHMENT_MIME.has(file.type)) {
         return NextResponse.json({ error: 'Adjunta un PDF o imagen de hasta 5 MB' }, { status: 400 });
     }
+    if (file.size > MAX_ATTACHMENT_BYTES) return NextResponse.json({ error: 'El archivo supera el máximo de 5 MB' }, { status: 413 });
+
     const activity = await prisma.businessActivity.findFirst({ where: { id: activityId, business_id: context.business.id } });
     if (!activity) return NextResponse.json({ error: 'Operación no encontrada' }, { status: 404 });
+
+    // Espacio usado por todas las empresas del usuario.
+    const [{ used }] = await prisma.$queryRaw`
+        SELECT COALESCE(SUM(octet_length(a.data)), 0)::bigint AS used
+        FROM business_attachments a JOIN businesses b ON b.id = a.business_id
+        WHERE b.owner_user_id = ${context.business.owner_user_id}`;
+    const quota = attachmentQuotaBytes();
+    if (Number(used) + file.size > quota) {
+        return NextResponse.json({ error: `No queda espacio para documentos: usas ${formatMb(Number(used))} de ${formatMb(quota)}. Borra alguno antes de subir más.` }, { status: 413 });
+    }
+
     const data = Buffer.from(await file.arrayBuffer());
     if (!matchesMime(data, file.type)) return NextResponse.json({ error: 'El archivo no coincide con el formato indicado' }, { status: 400 });
-    const filename = String(file.name || 'documento').slice(0, 180).replace(/[\r\n/\\]/g, '_');
-    const attachment = await prisma.businessAttachment.create({ data: { business_id: context.business.id, activity_id: activityId, filename, mime_type: file.type, data }, select: { id: true, filename: true, mime_type: true } });
+    const attachment = await prisma.businessAttachment.create({ data: { business_id: context.business.id, activity_id: activityId, filename: cleanFilename(file.name), mime_type: file.type, data }, select: { id: true, filename: true, mime_type: true } });
     return NextResponse.json(attachment, { status: 201 });
 }
 
@@ -40,7 +48,7 @@ export async function GET(request, { params }) {
     if (!id) return NextResponse.json({ error: 'Documento inválido' }, { status: 400 });
     const attachment = await prisma.businessAttachment.findFirst({ where: { id, business_id: context.business.id } });
     if (!attachment) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
-    return new NextResponse(attachment.data, { headers: { 'Content-Type': attachment.mime_type, 'Content-Disposition': `attachment; filename="${attachment.filename.replace(/[";]/g, '_')}"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
+    return new NextResponse(attachment.data, { headers: { 'Content-Type': attachment.mime_type, 'Content-Disposition': contentDisposition(attachment.filename), 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
 }
 
 export async function DELETE(request, { params }) {
