@@ -59,6 +59,7 @@ export async function GET(request) {
                 email: true,
                 name: true,
                 google_sub: true,
+                password_hash: true,
                 account_mode: true,
                 businesses: { select: { id: true, name: true, kind: true }, orderBy: { id: 'asc' } },
             }
@@ -76,6 +77,7 @@ export async function GET(request) {
             email: user.email,
             name: user.name,
             authMethod,
+            hasPassword: Boolean(user.password_hash),
             accountMode: user.account_mode,
             businesses: user.businesses,
         });

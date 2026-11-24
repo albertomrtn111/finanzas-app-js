@@ -32,6 +32,13 @@ npx prisma validate
 - La exportación ofrece JSON o ZIP con CSV. Puede abarcar todos los datos o los movimientos de un mes elegido. Presupuestos, productos y categorías se exportan completos también en la opción mensual, porque no son registros fechados.
 - Las rutas de API requieren una sesión de usuario salvo el registro y las rutas de autenticación. Los datos financieros se filtran por usuario.
 
+## Acceso
+
+- **Límite de intentos:** el inicio de sesión se bloquea 15 minutos tras 5 fallos con el mismo email desde la misma IP, 20 fallos con el mismo email desde cualquier IP o 50 fallos desde una misma IP. El registro admite 5 altas por hora desde la misma IP. Los contadores viven en memoria y se reinician con cada despliegue. La IP se toma de `X-Real-Ip`, que pone Traefik.
+- **Sin pistas sobre las cuentas:** el mensaje de error es el mismo exista o no el email, y la comprobación tarda lo mismo.
+- **Sesiones:** cada lectura de la sesión se refresca desde la base de datos, así que el nombre, el tipo de cuenta y el onboarding nunca se quedan desfasados. `users.session_version` sube al cambiar la contraseña o al pulsar «Cerrar sesión en todos los dispositivos» (Mi Perfil › Seguridad), y entonces todas las sesiones anteriores dejan de valer. Los accesos de la IA (MCP) se revocan aparte.
+- **Google:** si alguien entra con Google en una cuenta que tenía contraseña y aún no estaba vinculada, se borra esa contraseña y se cierran las demás sesiones, porque pudo ponerla cualquiera que registrase antes ese email. Desde Mi Perfil se puede crear una nueva.
+
 ## Empresa
 
 - En el registro se puede elegir Personal, Empresa o Ambas. Cada empresa tiene cuentas, operaciones por devengo, movimientos de dinero, facturas externas registradas, previsiones e IVA separados de los datos personales.

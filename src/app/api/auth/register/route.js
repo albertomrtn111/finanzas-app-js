@@ -1,9 +1,18 @@
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/db';
 import { NextResponse } from 'next/server';
+import { LIMITS, clientIp, hit, minutesText } from '@/lib/rateLimit';
 
 export async function POST(request) {
     try {
+        const limit = hit(`register:${clientIp(request.headers)}`, LIMITS.register);
+        if (!limit.allowed) {
+            return NextResponse.json(
+                { error: `Demasiados registros desde esta conexión. Vuelve a probar dentro de ${minutesText(limit.retryAfterMs)}.` },
+                { status: 429, headers: { 'Retry-After': String(Math.ceil(limit.retryAfterMs / 1000)) } }
+            );
+        }
+
         const body = await request.json().catch(() => ({}));
         const { email, password, name, accountMode, businessName, businessKind } = body;
 

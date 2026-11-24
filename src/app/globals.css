@@ -3107,3 +3107,7 @@ textarea.form-input {
 .mcp-new { display: flex; flex-direction: column; gap: 0.5rem; }
 .mcp-steps ol { padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.75rem; }
 .mcp-steps h4 { margin-bottom: 0.5rem; }
+.security-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 420px; }
+.security-form h4, .security-sessions h4 { margin-bottom: 0.25rem; }
+.security-form .btn { align-self: flex-start; }
+.security-sessions { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; padding-top: 1rem; border-top: 1px solid var(--border-color, rgba(148, 163, 184, 0.2)); }

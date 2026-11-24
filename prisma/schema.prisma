@@ -20,6 +20,8 @@ model User {
   onboarding_step Int     @default(0)
   created_at    DateTime
   last_login_at DateTime?
+  // Sube al cambiar la contraseña o cerrar todas las sesiones: invalida las sesiones anteriores.
+  session_version Int     @default(0)
 
   // Relaciones
   expenses            Expense[]
