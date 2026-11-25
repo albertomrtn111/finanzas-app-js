@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { businessContext, validId } from '@/lib/businessAccess';
+import { businessContext, businessRoute, validId } from '@/lib/businessAccess';
 import { ATTACHMENT_MIME, FORM_OVERHEAD_BYTES, MAX_ATTACHMENT_BYTES, attachmentQuotaBytes, cleanFilename, contentDisposition, formatMb, matchesMime } from '@/lib/attachments';
 
-export async function POST(request, { params }) {
+export const POST = businessRoute(async (request, { params }) => {
     const { businessId } = await params;
     const context = await businessContext(businessId);
     if (context.response) return context.response;
@@ -38,9 +38,9 @@ export async function POST(request, { params }) {
     if (!matchesMime(data, file.type)) return NextResponse.json({ error: 'El archivo no coincide con el formato indicado' }, { status: 400 });
     const attachment = await prisma.businessAttachment.create({ data: { business_id: context.business.id, activity_id: activityId, filename: cleanFilename(file.name), mime_type: file.type, data }, select: { id: true, filename: true, mime_type: true } });
     return NextResponse.json(attachment, { status: 201 });
-}
+});
 
-export async function GET(request, { params }) {
+export const GET = businessRoute(async (request, { params }) => {
     const { businessId } = await params;
     const context = await businessContext(businessId);
     if (context.response) return context.response;
@@ -49,9 +49,9 @@ export async function GET(request, { params }) {
     const attachment = await prisma.businessAttachment.findFirst({ where: { id, business_id: context.business.id } });
     if (!attachment) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
     return new NextResponse(attachment.data, { headers: { 'Content-Type': attachment.mime_type, 'Content-Disposition': contentDisposition(attachment.filename), 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
-}
+});
 
-export async function DELETE(request, { params }) {
+export const DELETE = businessRoute(async (request, { params }) => {
     const { businessId } = await params;
     const context = await businessContext(businessId);
     if (context.response) return context.response;
@@ -59,4 +59,4 @@ export async function DELETE(request, { params }) {
     if (!id) return NextResponse.json({ error: 'Documento inválido' }, { status: 400 });
     const deleted = await prisma.businessAttachment.deleteMany({ where: { id, business_id: context.business.id } });
     return deleted.count ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
-}
+});

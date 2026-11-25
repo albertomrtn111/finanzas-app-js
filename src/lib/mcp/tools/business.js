@@ -1,7 +1,7 @@
 import * as z from 'zod';
 import { Prisma } from '@prisma/client';
 import prisma from '../../db.js';
-import { activityInput, appDate, cents, cleanText, money, outstanding, summarizeBusiness, todayInMadrid } from '../../business.js';
+import { activityInput, appDate, cents, cleanText, closedQuarterMessage, closedQuartersTouched, money, outstanding, summarizeBusiness, todayInMadrid } from '../../business.js';
 import { FLOW_TYPES, MovementError, insertBusinessMovement, replaceAllocations } from '../../businessMovements.js';
 import { logChange } from '../changeLog.js';
 import { dateKey } from '../serialize.js';
@@ -35,6 +35,15 @@ function activityBody(input, existing) {
     const { value, error } = activityInput(merged);
     if (error) throw new ToolError(error);
     return value;
+}
+
+const confirmarTrimestre = z.boolean().optional().describe('Pon true solo después de que el usuario confirme que quiere cambiar o borrar una factura de un trimestre de IVA ya terminado (puede estar declarado)');
+
+// Una factura de un trimestre de IVA ya terminado solo se cambia o borra con la confirmación expresa del usuario.
+function requireClosedQuarterConfirmation(periods, action, confirmed) {
+    if (periods.length && !confirmed) {
+        throw new ToolError(`${closedQuarterMessage(periods, action)} Explícaselo al usuario y, si lo confirma, repite la llamada con confirmar_trimestre_cerrado: true.`);
+    }
 }
 
 function withOutstanding(activity) {
@@ -152,7 +161,7 @@ export function registerBusinessTools(server, ctx) {
 
     defineTool(server, ctx, 'guardar_operacion_empresa', {
         title: 'Crear o editar una operación de empresa (ingreso o gasto)',
-        description: 'Registra un ingreso o gasto por devengo, con o sin factura externa. Sin id crea; con id edita (los campos no indicados se mantienen). Sin factura (document_kind NONE) el IVA debe ser 0. Las fechas futuras van como previsión, no como operación. Los cobros y pagos reales se registran aparte con registrar_movimiento_empresa.',
+        description: 'Registra un ingreso o gasto por devengo, con o sin factura externa. Sin id crea; con id edita (los campos no indicados se mantienen). Sin factura (document_kind NONE) el IVA debe ser 0. vat_period no puede ser anterior al trimestre de document_date. Editar los datos fiscales (importes, IVA, fechas, número, contraparte o período) de una factura de un trimestre de IVA ya terminado exige confirmarlo con el usuario y repetir con confirmar_trimestre_cerrado: true; concepto, categoría y vencimiento se cambian sin confirmar. Las fechas futuras van como previsión, no como operación. Los cobros y pagos reales se registran aparte con registrar_movimiento_empresa.',
         input: {
             empresa_id: empresa, id: id.optional(), direction: direccion.optional(),
             description: z.string().max(240).optional(), category: z.string().max(100).optional(),
@@ -161,9 +170,10 @@ export function registerBusinessTools(server, ctx) {
             document_kind: z.enum(['NONE', 'INVOICE']).optional(), document_number: z.string().max(80).nullable().optional(),
             document_date: fecha.nullable().optional(), vat_period: z.string().regex(/^\d{4}-Q[1-4]$/).nullable().optional(),
             tax_lines: z.array(taxLine).min(1).max(20).optional(), withholding_rate: z.number().min(0).max(100).optional().describe('Retención de IRPF en %'),
+            confirmar_trimestre_cerrado: confirmarTrimestre,
         },
         annotations: WRITE,
-    }, async ({ empresa_id, id: activityId, ...input }, c) => {
+    }, async ({ empresa_id, id: activityId, confirmar_trimestre_cerrado, ...input }, c) => {
         const business = await requireBusiness(c, empresa_id);
         if (!activityId) {
             const value = activityBody(input);
@@ -178,6 +188,7 @@ export function registerBusinessTools(server, ctx) {
             const existing = await tx.businessActivity.findFirst({ where: { id: activityId, business_id: business.id }, include: { allocations: true } });
             if (!existing) throw new ToolError(`No existe la operación ${activityId}`);
             const value = activityBody(input, existing);
+            requireClosedQuarterConfirmation(closedQuartersTouched(existing, value), 'editar', confirmar_trimestre_cerrado);
             if (existing.allocations.length && existing.direction !== value.direction) throw new ToolError('Desvincula los cobros o pagos antes de cambiar el tipo');
             const paid = existing.allocations.reduce((sum, a) => sum + cents(a.amount), 0);
             if (paid > cents(value.total_amount)) throw new ToolError('El nuevo total es inferior al importe ya cobrado o pagado');
@@ -190,19 +201,26 @@ export function registerBusinessTools(server, ctx) {
 
     defineTool(server, ctx, 'borrar_operacion_empresa', {
         title: 'Borrar una operación de empresa',
-        description: 'Borra una operación sin cobros ni pagos vinculados. Sus adjuntos se borran con ella y no se recuperan al deshacer.',
-        input: { empresa_id: empresa, id },
+        description: 'Borra una operación sin cobros ni pagos vinculados. Sus adjuntos se borran con ella y no se recuperan al deshacer. Si es una factura de un trimestre de IVA ya terminado (puede estar declarado), confírmalo con el usuario y repite con confirmar_trimestre_cerrado: true.',
+        input: { empresa_id: empresa, id, confirmar_trimestre_cerrado: confirmarTrimestre },
         annotations: DELETE,
-    }, async ({ empresa_id, id: activityId }, c) => {
+    }, async ({ empresa_id, id: activityId, confirmar_trimestre_cerrado }, c) => {
         const business = await requireBusiness(c, empresa_id);
-        return prisma.$transaction(async tx => {
-            const existing = await tx.businessActivity.findFirst({ where: { id: activityId, business_id: business.id } });
-            if (!existing) throw new ToolError(`No existe la operación ${activityId}`);
-            if (await tx.businessAllocation.count({ where: { business_id: business.id, activity_id: activityId } })) throw new ToolError('Desvincula sus cobros o pagos antes de borrarla');
-            await tx.businessActivity.delete({ where: { id: activityId } });
-            const log = await logChange(tx, c, { entity: 'business_activity', entityId: activityId, action: 'DELETE', before: existing, businessId: business.id });
-            return { borrada: activityId, cambio: log.id };
-        });
+        try {
+            return await prisma.$transaction(async tx => {
+                const existing = await tx.businessActivity.findFirst({ where: { id: activityId, business_id: business.id } });
+                if (!existing) throw new ToolError(`No existe la operación ${activityId}`);
+                if (await tx.businessAllocation.count({ where: { business_id: business.id, activity_id: activityId } })) throw new ToolError('Desvincula sus cobros o pagos antes de borrarla');
+                requireClosedQuarterConfirmation(closedQuartersTouched(existing), 'borrar', confirmar_trimestre_cerrado);
+                await tx.businessActivity.delete({ where: { id: activityId } });
+                const log = await logChange(tx, c, { entity: 'business_activity', entityId: activityId, action: 'DELETE', before: existing, businessId: business.id });
+                return { borrada: activityId, cambio: log.id };
+            });
+        } catch (error) {
+            // La base de datos impide borrarla si entre medias se ha vinculado un cobro o pago.
+            if (error?.code === 'P2003') throw new ToolError('Desvincula sus cobros o pagos antes de borrarla');
+            throw error;
+        }
     });
 
     defineTool(server, ctx, 'registrar_movimiento_empresa', {
@@ -290,8 +308,10 @@ export function registerBusinessTools(server, ctx) {
             if (accion !== 'crear' && !existing) throw new ToolError('Indica el id de una cuenta existente');
             const movementCount = existing ? await tx.businessMovement.count({ where: { account_id: existing.id, business_id: business.id } }) : 0;
             if (accion === 'borrar') {
-                if (movementCount) throw new ToolError('La cuenta tiene movimientos. Consérvala para mantener el historial');
-                await tx.businessAccount.delete({ where: { id: existing.id } });
+                const refusal = 'La cuenta tiene movimientos. Consérvala para mantener el historial';
+                if (movementCount) throw new ToolError(refusal);
+                // La base de datos lo impide también si entre medias se registra un movimiento.
+                await tx.businessAccount.delete({ where: { id: existing.id } }).catch(error => { throw error?.code === 'P2003' ? new ToolError(refusal) : error; });
                 const log = await logChange(tx, c, { entity: 'business_account', entityId: existing.id, action: 'DELETE', before: existing, businessId: business.id });
                 return { accion: 'borrada', cambio: log.id };
             }

@@ -132,9 +132,13 @@ Los registros se consultan con `journalctl -t finanzas-backup`.
 
 - En el registro se puede elegir Personal, Empresa o Ambas. Cada empresa tiene cuentas, operaciones por devengo, movimientos de dinero, facturas externas registradas, previsiones e IVA separados de los datos personales.
 - El líquido usa el saldo inicial más los movimientos reales hasta hoy. El resultado de gestión usa los ingresos y gastos incurridos del mes; los gastos incluyen el IVA que se haya marcado como no deducible. Los cobros y pagos se enlazan a operaciones sin volver a contarlos como nuevos ingresos o gastos.
-- La previsión suma pendientes con vencimiento y planes futuros abiertos. Al registrar un plan como movimiento, márcalo como realizado para evitar duplicarlo en la previsión.
+- La previsión suma pendientes y planes futuros abiertos. Un pendiente sin vencimiento cuenta desde su fecha de devengo (si ya pasó, desde hoy y como vencido). Al registrar un plan como movimiento, márcalo como realizado para evitar duplicarlo en la previsión.
 - El registro de IVA cubre el régimen general y operaciones interiores, exentas o no sujetas introducidas manualmente. Muestra un resumen orientativo y exporta el detalle en CSV; no presenta declaraciones ni emite facturas. Los regímenes especiales, operaciones intracomunitarias, inversión del sujeto pasivo y facturas rectificativas necesitan reglas adicionales antes de considerarse cubiertos.
 - Los adjuntos PDF o imagen de hasta 5 MB se guardan en PostgreSQL y solo se descargan tras comprobar la titularidad de la empresa. Los envíos de más de 5 MB se rechazan antes de leerlos. Cada usuario tiene 200 MB para documentos, sumando todas sus empresas (`ATTACHMENT_QUOTA_MB` lo cambia). Los nombres conservan tildes y símbolos, y se descargan con cualquier nombre. Borrar una operación con documentos exige confirmarlo (`?adjuntos=borrar`), porque los documentos se borran con ella.
+- La base de datos impide borrar una cuenta con movimientos o una operación con cobros o pagos vinculados (responde 409); borrar un movimiento sí borra sus vínculos y la factura vuelve a quedar pendiente.
+- El período de IVA de una factura no puede ser anterior al trimestre de su fecha. Cambiar los datos fiscales o borrar una factura de un trimestre ya terminado (puede estar declarado) exige confirmarlo: `?trimestre=cerrado` en la API, un aviso en la web y `confirmar_trimestre_cerrado` en el MCP. Concepto, categoría y vencimiento se cambian sin confirmar.
+- Los importes de empresa solo admiten números o textos con hasta dos decimales (punto o coma); el tipo de IVA y los porcentajes se validan igual. Los errores de la API de empresa siempre llegan en JSON.
+- Los números de factura únicos viven en dos índices parciales de la migración `20261005_business_module` que Prisma no representa en `schema.prisma`; no los borres si `prisma migrate dev` lo propone.
 
 ## MCP para la IA
 

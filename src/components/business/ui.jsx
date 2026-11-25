@@ -7,10 +7,17 @@ export const shortDate = value => value ? new Date(value).toLocaleDateString('es
 export const dateInput = value => value ? new Date(value).toISOString().slice(0, 10) : '';
 export const todayKey = () => new Date().toLocaleDateString('en-CA');
 
+// Petición a la API de empresa. Si falla, el error lleva el estado HTTP y la respuesta (p. ej., para
+// pedir una confirmación y repetir).
 export async function businessRequest(url, options) {
     const response = await fetch(url, options);
     const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error || 'No se pudo completar la operación');
+    if (!response.ok) {
+        const error = new Error(result.error || 'No se pudo completar la operación');
+        error.status = response.status;
+        error.data = result;
+        throw error;
+    }
     return result;
 }
 
@@ -45,6 +52,14 @@ export function LoadState({ loading, error, retry }) {
     if (loading) return <div className="card"><div className="card-body">Cargando datos de empresa…</div></div>;
     if (error) return <div className="alert alert-danger" role="alert">{error} <button className="btn btn-secondary" onClick={retry}>Reintentar</button></div>;
     return null;
+}
+
+// Mensajes de un formulario: el error en rojo y la confirmación en verde, nunca mezclados.
+export function FormMessages({ error, success, className = '' }) {
+    return <>
+        {error && <div className={`alert alert-danger ${className}`.trim()} role="alert">{error}</div>}
+        {success && <div className={`alert alert-success ${className}`.trim()} role="status">{success}</div>}
+    </>;
 }
 
 export function EmptyState({ text }) {

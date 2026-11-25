@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import Link from 'next/link';
-import { euro, shortDate, todayKey, businessRequest, PageHeader, LoadState, EmptyState, useBusinessData } from '@/components/business/ui';
+import { euro, shortDate, todayKey, businessRequest, PageHeader, LoadState, EmptyState, FormMessages, useBusinessData } from '@/components/business/ui';
 
 const empty = () => ({ name: '', kind: 'BANK', opening_balance: '0', opening_on: todayKey() });
 
@@ -12,24 +12,28 @@ export default function BusinessAccountsPage() {
     const { data, loading, error, refresh } = useBusinessData(businessId, ['accounts']);
     const [form, setForm] = useState(empty);
     const [message, setMessage] = useState('');
+    const [success, setSuccess] = useState('');
     const [saving, setSaving] = useState(false);
     const [editingId, setEditingId] = useState(null);
     const base = `/empresa/${businessId}`;
     const submit = async event => {
         event.preventDefault();
-        setSaving(true); setMessage('');
+        setSaving(true); setMessage(''); setSuccess('');
         try {
             await businessRequest(`/api/businesses/${businessId}/accounts`, { method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editingId ? { ...form, id: editingId } : form) });
+            const saved = editingId ? 'Cambios guardados.' : `Cuenta «${form.name.trim()}» añadida.`;
             setForm(empty());
             setEditingId(null);
             await refresh();
+            setSuccess(saved);
         } catch (cause) { setMessage(cause.message); }
         finally { setSaving(false); }
     };
     const edit = account => { setEditingId(account.id); setForm({ name: account.name, kind: account.kind, opening_balance: account.opening_balance, opening_on: account.opening_on.slice(0, 10) }); window.scrollTo({ top: 0, behavior: 'smooth' }); };
     const remove = async account => {
         if (!window.confirm(`¿Eliminar la cuenta «${account.name}»?`)) return;
-        try { await businessRequest(`/api/businesses/${businessId}/accounts?id=${account.id}`, { method: 'DELETE' }); await refresh(); }
+        setMessage(''); setSuccess('');
+        try { await businessRequest(`/api/businesses/${businessId}/accounts?id=${account.id}`, { method: 'DELETE' }); await refresh(); setSuccess(`Cuenta «${account.name}» eliminada.`); }
         catch (cause) { setMessage(cause.message); }
     };
     return <div className="page-container business-page">
@@ -41,7 +45,7 @@ export default function BusinessAccountsPage() {
             <div className="form-group"><label className="form-label" htmlFor="accountKind">Tipo</label><select id="accountKind" className="form-input form-select" value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value })}><option value="BANK">Banco</option><option value="CASH">Caja</option></select></div>
             <div className="form-group"><label className="form-label" htmlFor="openingBalance">Saldo inicial</label><input id="openingBalance" type="number" step="0.01" className="form-input" value={form.opening_balance} onChange={e => setForm({ ...form, opening_balance: e.target.value })} required /></div>
             <div className="form-group"><label className="form-label" htmlFor="openingOn">Fecha del saldo</label><input id="openingOn" type="date" className="form-input" value={form.opening_on} onChange={e => setForm({ ...form, opening_on: e.target.value })} required /></div>
-            {message && <div role="alert" className="alert alert-danger business-full">{message}</div>}
+            <FormMessages error={message} success={success} className="business-full" />
             <div className="business-full business-form-actions"><button className="btn btn-primary" disabled={saving}>{saving ? 'Guardando...' : editingId ? 'Guardar cambios' : 'Añadir cuenta'}</button>{editingId && <button type="button" className="btn btn-secondary" onClick={() => { setEditingId(null); setForm(empty()); }}>Cancelar</button>}</div>
         </form></div></div>
     </div>;

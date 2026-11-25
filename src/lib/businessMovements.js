@@ -23,9 +23,11 @@ export async function saveAllocations(tx, businessId, movement, raw) {
     const used = new Set();
     let allocated = 0;
     for (const item of raw) {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return 'Cada vínculo de factura necesita activity_id e importe';
         const activityId = validId(item.activity_id);
         const amount = cents(item.amount);
-        if (!activityId || !amount || used.has(activityId)) return 'Importe o factura duplicada inválidos';
+        if (!activityId || !amount) return 'Vínculo de factura inválido: indica la operación y un importe mayor que 0 con hasta dos decimales';
+        if (used.has(activityId)) return 'La misma factura aparece dos veces en los vínculos';
         used.add(activityId);
         allocated += amount;
         const activity = await tx.businessActivity.findFirst({ where: { id: activityId, business_id: businessId }, include: { allocations: true } });

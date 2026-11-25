@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { businessContext } from '@/lib/businessAccess';
+import { businessContext, businessRoute } from '@/lib/businessAccess';
 import { summarizeBusiness } from '@/lib/business';
 
-export async function GET(_request, { params }) {
+export const GET = businessRoute(async (_request, { params }) => {
     const { businessId } = await params;
     const context = await businessContext(businessId);
     if (context.response) return context.response;
@@ -14,4 +14,4 @@ export async function GET(_request, { params }) {
         prisma.businessCashPlan.findMany({ where: { business_id: context.business.id } }),
     ]);
     return NextResponse.json({ business: context.business, ...summarizeBusiness({ accounts, activities, movements, plans }) });
-}
+});

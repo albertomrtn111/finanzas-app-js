@@ -1,13 +1,44 @@
 const MAX_CENTS = 99_999_999_999_999;
+// Importe decimal con hasta dos decimales, con punto o coma: «12», «12.5», «-12,30», «+500».
+const AMOUNT_TEXT = /^[+-]?\d+(?:[.,]\d{1,2})?$/;
+// Porcentaje con hasta dos decimales: «21», «5,2», «10.5».
+const PERCENT_TEXT = /^\d{1,3}(?:[.,]\d{1,2})?$/;
+const VAT_PERIOD = /^\d{4}-Q[1-4]$/;
+const VAT_TREATMENTS = ['DOMESTIC', 'EXEMPT', 'NON_SUBJECT'];
 
-export function cents(value, { allowNegative = false, allowZero = false } = {}) {
-    const normalized = typeof value === 'string' ? value.trim().replace(',', '.') : value;
-    const number = Number(normalized);
-    if (!Number.isFinite(number) || (!allowNegative && number < 0) || (!allowZero && number === 0)) return null;
-    const result = Math.round(number * 100);
-    if (!Number.isSafeInteger(result) || Math.abs(result) > MAX_CENTS || Math.abs(result / 100 - number) > 0.000001) return null;
-    return result;
+// Texto decimal de un importe. Solo acepta números finitos, textos y Decimal de Prisma (valores ya
+// guardados); cualquier otra cosa (true, [5], {}, null) no es un importe.
+function decimalText(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? String(value) : null;
+    if (typeof value === 'string') return value.trim();
+    if (value && typeof value === 'object' && typeof value.toFixed === 'function' && typeof value.isFinite === 'function') {
+        return value.isFinite() ? value.toFixed() : null;
+    }
+    return null;
 }
+
+// Convierte un importe en céntimos sin pasar por coma flotante. Devuelve null si no es válido:
+// rechaza «0x1F», «1e3», «12.345», booleanos, listas y textos vacíos.
+export function cents(value, { allowNegative = false, allowZero = false } = {}) {
+    const text = decimalText(value);
+    if (text === null || !AMOUNT_TEXT.test(text)) return null;
+    const sign = text.startsWith('-') ? -1 : 1;
+    const [whole, fraction = ''] = text.replace(/^[+-]/, '').split(/[.,]/);
+    const result = sign * (Number(whole) * 100 + Number(fraction.padEnd(2, '0')));
+    if (!Number.isSafeInteger(result) || Math.abs(result) > MAX_CENTS) return null;
+    if ((!allowNegative && result < 0) || (!allowZero && result === 0)) return null;
+    return result === 0 ? 0 : result;
+}
+
+// Porcentaje entre 0 y 100 con hasta dos decimales, o null si no es válido.
+export function percent(value) {
+    const text = typeof value === 'number' ? (Number.isFinite(value) ? String(value) : '') : typeof value === 'string' ? value.trim() : '';
+    if (!PERCENT_TEXT.test(text)) return null;
+    const number = Number(text.replace(',', '.'));
+    return number <= 100 ? number : null;
+}
+
+const missing = value => value === undefined || value === null || value === '';
 
 export function money(value) {
     return (value / 100).toFixed(2);
@@ -63,14 +94,19 @@ export function activityInput(input) {
     if (!Array.isArray(rawLines) || rawLines.length < 1 || rawLines.length > 20) return { error: 'Añade entre 1 y 20 líneas de importes' };
     let base = 0, vat = 0, deductible = 0;
     const tax_lines = [];
-    for (const line of rawLines) {
-        const baseCents = cents(line?.base);
-        const rate = Number(line?.vat_rate);
-        const treatment = line?.vat_treatment || 'DOMESTIC';
-        const deduction = input.direction === 'EXPENSE' ? Number(line?.deductible_percent ?? 100) : 0;
-        if (baseCents === null || baseCents <= 0 || !Number.isFinite(rate) || rate < 0 || rate > 100 ||
-            !Number.isFinite(deduction) || deduction < 0 || deduction > 100 ||
-            !['DOMESTIC', 'EXEMPT', 'NON_SUBJECT'].includes(treatment) || (treatment !== 'DOMESTIC' && rate !== 0)) return { error: 'Importes o clasificación de IVA inválidos' };
+    for (const [index, line] of rawLines.entries()) {
+        const where = rawLines.length > 1 ? ` de la línea ${index + 1}` : '';
+        if (!line || typeof line !== 'object' || Array.isArray(line)) return { error: `La línea de importes ${index + 1} no es válida` };
+        const baseCents = cents(line.base);
+        if (baseCents === null) return { error: `Base imponible${where} inválida: indica un importe mayor que 0 con hasta dos decimales` };
+        const treatment = line.vat_treatment || 'DOMESTIC';
+        if (!VAT_TREATMENTS.includes(treatment)) return { error: `Clasificación de IVA${where} inválida` };
+        // Sin tipo indicado solo se admite el 0 % cuando no puede ser otro: exenta, no sujeta o sin factura.
+        const rate = missing(line.vat_rate) && (treatment !== 'DOMESTIC' || document_kind === 'NONE') ? 0 : percent(line.vat_rate);
+        if (rate === null) return { error: `Tipo de IVA${where} inválido: indica un porcentaje entre 0 y 100 con hasta dos decimales` };
+        if (treatment !== 'DOMESTIC' && rate !== 0) return { error: `Una línea exenta o no sujeta lleva el IVA al 0 %${where ? ` (línea ${index + 1})` : ''}` };
+        const deduction = input.direction === 'EXPENSE' ? (missing(line.deductible_percent) ? 100 : percent(line.deductible_percent)) : 0;
+        if (deduction === null) return { error: `IVA deducible${where} inválido: indica un porcentaje entre 0 y 100 con hasta dos decimales` };
         const vatCents = Math.round(baseCents * rate / 100);
         const deductibleCents = Math.round(vatCents * deduction / 100);
         base += baseCents;
@@ -78,16 +114,19 @@ export function activityInput(input) {
         deductible += deductibleCents;
         tax_lines.push({ base: money(baseCents), vat_treatment: treatment, vat_rate: rate, vat_amount: money(vatCents), deductible_percent: deduction, deductible_vat: money(deductibleCents) });
     }
-    const withholdingRate = Number(input.withholding_rate || 0);
-    if (!Number.isFinite(withholdingRate) || withholdingRate < 0 || withholdingRate > 100) return { error: 'Retención inválida' };
+    const withholdingRate = missing(input.withholding_rate) ? 0 : percent(input.withholding_rate);
+    if (withholdingRate === null) return { error: 'Retención inválida: indica un porcentaje entre 0 y 100 con hasta dos decimales' };
     const withholding = Math.round(base * withholdingRate / 100);
     const total = base + vat - withholding;
     if (total <= 0 || [base, vat, deductible, withholding, total].some(amount => amount > MAX_CENTS)) return { error: 'Total inválido' };
 
     let vat_period = null;
     if (document_kind !== 'NONE') {
-        vat_period = input.vat_period || quarter(dateKey(document_date));
-        if (!/^\d{4}-Q[1-4]$/.test(vat_period)) return { error: 'Período de IVA inválido' };
+        const documentQuarter = quarter(dateKey(document_date));
+        vat_period = missing(input.vat_period) ? documentQuarter : typeof input.vat_period === 'string' ? input.vat_period.trim() : null;
+        if (!VAT_PERIOD.test(vat_period || '')) return { error: 'Período de IVA inválido: usa el formato AAAA-QN, por ejemplo 2026-Q4' };
+        // Una factura puede declararse en un trimestre posterior a su fecha, nunca en uno anterior.
+        if (vat_period < documentQuarter) return { error: `El período de IVA ${vat_period} es anterior al trimestre de la fecha de factura (${documentQuarter})` };
     } else if (vat !== 0) {
         return { error: 'Sin factura, registra la base con IVA al 0 % hasta disponer del documento' };
     }
@@ -101,8 +140,51 @@ export function activityInput(input) {
 }
 
 export function outstanding(activity) {
-    const paid = (activity.allocations || []).reduce((sum, allocation) => sum + cents(allocation.amount, { allowZero: true }), 0);
-    return Math.max(0, cents(activity.total_amount) - paid);
+    const paid = (activity.allocations || []).reduce((sum, allocation) => sum + (cents(allocation.amount, { allowZero: true }) || 0), 0);
+    return Math.max(0, (cents(activity.total_amount) || 0) - paid);
+}
+
+// Fecha en la que se espera cobrar o pagar un pendiente: su vencimiento o, si no tiene, la fecha de
+// devengo (se considera exigible desde entonces y cuenta ya en la previsión).
+export function expectedOn(activity) {
+    return activity.due_on || activity.occurred_on;
+}
+
+// Un trimestre de IVA está cerrado cuando terminó antes del trimestre actual: puede estar ya declarado.
+export function isClosedQuarter(period, today = todayInMadrid()) {
+    return typeof period === 'string' && VAT_PERIOD.test(period) && period < quarter(dateKey(today));
+}
+
+// Datos de una operación que cuentan para la declaración de IVA. Concepto, categoría y vencimiento no.
+function fiscalFingerprint(activity) {
+    const day = value => (value ? dateKey(value) : null);
+    const amount = value => cents(value, { allowZero: true });
+    const lines = Array.isArray(activity.tax_lines) ? activity.tax_lines : [];
+    return JSON.stringify([
+        activity.direction, day(activity.occurred_on), activity.document_kind || 'NONE', activity.document_number || null, day(activity.document_date),
+        activity.counterparty_name || null, activity.counterparty_tax_id || null, activity.vat_period || null,
+        ...['base_amount', 'vat_amount', 'deductible_vat', 'withholding_amount', 'total_amount'].map(key => amount(activity[key])),
+        lines.map(line => [amount(line?.base), line?.vat_treatment || 'DOMESTIC', Number(line?.vat_rate), amount(line?.vat_amount), Number(line?.deductible_percent ?? 0), amount(line?.deductible_vat)]),
+    ]);
+}
+
+// Trimestres de IVA ya cerrados que cambiaría editar una factura (con `next`) o borrarla (sin `next`).
+// Una edición que solo toca concepto, categoría o vencimiento no cambia ningún trimestre.
+export function closedQuartersTouched(existing, next = null, today = todayInMadrid()) {
+    const periods = [existing, next]
+        .filter(item => item && item.document_kind && item.document_kind !== 'NONE')
+        .map(item => item.vat_period)
+        .filter(period => isClosedQuarter(period, today));
+    if (!periods.length || (next && fiscalFingerprint(existing) === fiscalFingerprint(next))) return [];
+    return [...new Set(periods)].sort();
+}
+
+// Explicación común para la web y el MCP. `action` es 'editar' o 'borrar'.
+export function closedQuarterMessage(periods, action) {
+    const plural = periods.length > 1;
+    const list = plural ? `los trimestres de IVA ${periods.join(' y ')}` : `el trimestre de IVA ${periods[0]}`;
+    return `Esta factura afecta a ${list}, que ya ${plural ? 'han terminado y pueden estar declarados' : 'ha terminado y puede estar declarado'}. ` +
+        `${action === 'borrar' ? 'Borrarla' : 'Guardar el cambio'} modifica ${plural ? 'esos trimestres' : 'ese trimestre'}: si ya ${plural ? 'los' : 'lo'} presentaste, puede que necesites una declaración complementaria o sustitutiva.`;
 }
 
 export function summarizeBusiness({ accounts, activities, movements, plans }, today = todayInMadrid()) {
@@ -122,7 +204,7 @@ export function summarizeBusiness({ accounts, activities, movements, plans }, to
         if (dateKey(activity.occurred_on).slice(0, 7) === month) accrued[activity.direction.toLowerCase()] += amount;
         const open = outstanding(activity);
         pending[activity.direction.toLowerCase()] += open;
-        if (open > 0 && activity.due_on && dateKey(activity.due_on) < current) pending.overdue += open;
+        if (open > 0 && dateKey(expectedOn(activity)) < current) pending.overdue += open;
     }
     const monthMovements = movements.filter(m => dateKey(m.date) <= current && dateKey(m.date).slice(0, 7) === month && m.flow_type !== 'TRANSFER');
     const monthFlow = monthMovements.reduce((sum, m) => sum + (cents(m.amount, { allowNegative: true, allowZero: true }) || 0), 0);
@@ -138,7 +220,8 @@ export function summarizeBusiness({ accounts, activities, movements, plans }, to
         const endKey = dateKey(end);
         const due = activities.reduce((sum, activity) => {
             const open = outstanding(activity);
-            if (!open || !activity.due_on || dateKey(activity.due_on) > endKey) return sum;
+            // Sin vencimiento cuenta desde la fecha de devengo: si ya pasó, desde hoy.
+            if (!open || dateKey(expectedOn(activity)) > endKey) return sum;
             return sum + (activity.direction === 'INCOME' ? open : -open);
         }, 0);
         const planned = plans.filter(p => p.status === 'PLANNED' && dateKey(p.due_on) <= endKey).reduce((sum, p) => {
