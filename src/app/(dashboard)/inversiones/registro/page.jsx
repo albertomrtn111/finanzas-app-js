@@ -1,477 +1,393 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { localDateKey, parseAppDate } from '@/lib/dateUtils';
+import Link from 'next/link';
+import { localDateKey } from '@/lib/dateUtils';
+import { formatDate } from '@/lib/dateFormat';
+import { formatPct, formatSignedPct } from '@/lib/moneyFormat';
+import { parseAmountInput, amountToInput } from '@/lib/amount';
 import { latestByAccount, totalLatestValue } from '@/lib/financialSnapshots';
+import { jsonRequest, requestJson } from '@/lib/utils';
+import { AmountInput, EmptyState, Field, LoadState, Money, useFeedback } from '@/components/ui';
+
+// Tipos de movimiento: aportación (entra dinero), retirada (sale) o solo actualizar el valor (aportación 0).
+const MOVEMENTS = {
+    entrada: { option: 'Aportación (entra dinero)', amountLabel: 'Importe aportado (€)', saved: 'Aportación guardada' },
+    salida: { option: 'Retirada o venta (sale dinero)', amountLabel: 'Importe retirado (€)', saved: 'Retirada guardada' },
+    valor: { option: 'Solo actualizar el valor (sin aportar ni retirar)', amountLabel: null, saved: 'Valor actualizado' },
+};
+
+const movementOf = contribution => (contribution > 0 ? 'entrada' : contribution < 0 ? 'salida' : 'valor');
+
+const BADGES = {
+    entrada: { label: 'Aportación', className: 'badge-success' },
+    salida: { label: 'Retirada', className: 'badge-danger' },
+    valor: { label: 'Actualización de valor', className: 'badge-primary' },
+};
+
+const emptyForm = product => ({
+    date: localDateKey(),
+    account: product?.name || '',
+    asset_type: product?.asset_type || '',
+    movType: 'entrada',
+    amount: '',
+    current_value: '',
+    notes: '',
+});
+
+function focusForm() {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById('inversion-formulario')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    document.getElementById('inversion-valor')?.focus({ preventScroll: true });
+}
 
 export default function InversionesRegistroPage() {
+    const { toast, confirm } = useFeedback();
     const [products, setProducts] = useState([]);
     const [investments, setInvestments] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [status, setStatus] = useState({ loading: true, error: '' });
     const [saving, setSaving] = useState(false);
-    const [message, setMessage] = useState({ type: '', text: '' });
-    const [showConfirm, setShowConfirm] = useState(false);
     const [editingId, setEditingId] = useState(null);
+    const [form, setForm] = useState(() => emptyForm(null));
+    const [errors, setErrors] = useState({});
 
-    const initialFormState = {
-        date: localDateKey(),
-        account: '',
-        asset_type: '',
-        movType: 'entrada',
-        amount: '',
-        current_value: '',
-        notes: '',
-    };
-
-    const [form, setForm] = useState(initialFormState);
-
-    const loadData = useCallback(async () => {
-        setLoading(true);
+    const loadData = useCallback(async ({ silent = false } = {}) => {
+        if (!silent) setStatus({ loading: true, error: '' });
         try {
-            const [prodRes, invRes] = await Promise.all([
-                fetch('/api/investment-products'),
-                fetch('/api/investments'),
-            ]);
-            if (prodRes.ok) {
-                const prods = await prodRes.json();
-                setProducts(prods);
-                // Only set default if NOT editing and no account selected
-                if (prods.length > 0) {
-                    setForm((f) => f.account ? f : ({ ...f, account: prods[0].name, asset_type: prods[0].asset_type }));
-                }
-            }
-            if (invRes.ok) setInvestments(await invRes.json());
+            const [productData, investmentData] = await Promise.all([requestJson('/api/investment-products'), requestJson('/api/investments')]);
+            const list = Array.isArray(productData) ? productData : [];
+            setProducts(list);
+            setInvestments(Array.isArray(investmentData) ? investmentData : []);
+            if (list.length) setForm(current => (current.account ? current : { ...current, account: list[0].name, asset_type: list[0].asset_type }));
+            setStatus({ loading: false, error: '' });
         } catch (error) {
-            console.error('Error:', error);
+            if (silent) toast({ type: 'error', text: `No se ha podido actualizar la lista: ${error.message}`, action: { label: 'Recargar', onClick: () => window.location.reload() } });
+            else setStatus({ loading: false, error: error.message });
         }
-        setLoading(false);
-    }, []);
+    }, [toast]);
 
     useEffect(() => {
         const timer = setTimeout(() => { void loadData(); }, 0);
         return () => clearTimeout(timer);
     }, [loadData]);
 
-    const showMessage = (type, text) => {
-        setMessage({ type, text });
-        setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    const updateForm = (field, value) => {
+        setForm(current => ({ ...current, [field]: value }));
+        setErrors(current => ({ ...current, [field]: undefined }));
     };
 
     const handleProductChange = (name) => {
         const product = products.find((p) => p.name === name);
-        setForm({ ...form, account: name, asset_type: product?.asset_type || '' });
+        setForm(current => ({ ...current, account: name, asset_type: product?.asset_type || '' }));
     };
 
     const cancelEdit = () => {
         setEditingId(null);
-        setForm({
-            ...initialFormState,
-            account: products.length > 0 ? products[0].name : '',
-            asset_type: products.length > 0 ? products[0].asset_type : ''
-        });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setErrors({});
+        setForm(emptyForm(products[0]));
     };
 
     const handleEdit = (inv) => {
+        const contribution = Number(inv.contribution);
         setEditingId(inv.id);
-        const contribution = parseFloat(inv.contribution);
+        setErrors({});
         setForm({
-            date: inv.date.split('T')[0],
+            date: String(inv.date).slice(0, 10),
             account: inv.account,
             asset_type: inv.asset_type,
-            movType: contribution >= 0 ? 'entrada' : 'salida',
-            amount: Math.abs(contribution), // Show positive amount
-            current_value: inv.current_value,
+            movType: movementOf(contribution),
+            amount: contribution ? amountToInput(Math.abs(contribution)) : '',
+            current_value: amountToInput(inv.current_value),
             notes: inv.notes || '',
         });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(focusForm, 0);
     };
 
-    // Calculate product stats
+    // Situación actual del producto elegido
     const productStats = useMemo(() => {
-        if (!form.account) return null;
-
         const productInvestments = investments.filter(i => i.account === form.account);
-        // If editing, exclude the current investment from "past stats" to avoid double counting or confusion?
-        // Actually for "Current Value" history it might be tricky. 
-        // Let's keep it simple: stats based on server data (which includes the item being edited, but that's what we have).
-        // A more advanced edit might subtract the old values first, but that's complex. 
-        // For now, let's just show stats as they are in DB.
-
-        if (productInvestments.length === 0) return null;
-
-        const totalContrib = productInvestments.reduce((sum, i) => sum + parseFloat(i.contribution), 0);
+        if (!form.account || productInvestments.length === 0) return null;
+        const totalContrib = productInvestments.reduce((sum, i) => sum + Number(i.contribution), 0);
         const currentValue = Number(latestByAccount(productInvestments)[form.account]?.current_value || 0);
         const gain = currentValue - totalContrib;
         const returnPct = totalContrib !== 0 ? (gain / totalContrib) * 100 : 0;
-
-        // Calculate total portfolio value
         const totalPortfolio = totalLatestValue(investments);
         const weight = totalPortfolio > 0 ? (currentValue / totalPortfolio) * 100 : 0;
-
         return { totalContrib, currentValue, gain, returnPct, weight, totalPortfolio };
     }, [form.account, investments]);
 
-    // Calculate impact preview
-    const impactPreview = useMemo(() => {
-        if (!productStats || !form.amount) return null;
+    const isValueUpdate = form.movType === 'valor';
+    const parsedAmount = isValueUpdate ? { value: '0.00' } : parseAmountInput(form.amount, { label: 'El importe' });
+    const parsedValue = parseAmountInput(form.current_value, { allowZero: true, label: 'El valor total' });
 
-        // If editing, this preview is slightly inaccurate because it adds to the EXISTING total (which already includes this item).
-        // Use with caution when editing. Maybe hide or show different text?
-        if (editingId) return null;
-
-        const amount = parseFloat(form.amount) || 0;
+    // Vista previa del peso en cartera (solo al registrar un movimiento nuevo)
+    let impactPreview = null;
+    if (productStats && !editingId && !isValueUpdate && !parsedAmount.error) {
+        const amount = Number(parsedAmount.value);
         const isEntry = form.movType === 'entrada';
-        const newContrib = productStats.totalContrib + (isEntry ? amount : -amount);
-        const newValue = form.current_value
-            ? parseFloat(form.current_value)
-            : productStats.currentValue + (isEntry ? amount : -amount);
-
+        const newValue = parsedValue.error ? productStats.currentValue + (isEntry ? amount : -amount) : Number(parsedValue.value);
         const newTotalPortfolio = productStats.totalPortfolio - productStats.currentValue + newValue;
-        // const currentWeight = productStats.weight;
-        const newWeight = newTotalPortfolio > 0 ? (newValue / newTotalPortfolio) * 100 : 0;
-
-        return {
+        impactPreview = {
             isEntry,
-            amount,
+            newValue,
             currentWeight: productStats.weight,
-            newWeight,
-            currentValue: productStats.currentValue,
-            newValue
+            newWeight: newTotalPortfolio > 0 ? (newValue / newTotalPortfolio) * 100 : 0,
         };
-    }, [productStats, form.amount, form.current_value, form.movType, editingId]);
+    }
 
-    const handleSubmitClick = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.account || !form.asset_type || form.current_value === '' ||
-            !Number.isFinite(Number(form.amount)) || Number(form.amount) <= 0 ||
-            !Number.isFinite(Number(form.current_value)) || Number(form.current_value) < 0) {
-            showMessage('error', 'Indica un producto, un movimiento positivo y un valor actual válido');
+        const nextErrors = {};
+        if (!form.account) nextErrors.account = 'Elige un producto';
+        if (!form.date) nextErrors.date = 'Indica la fecha';
+        if (parsedAmount.error) nextErrors.amount = parsedAmount.error;
+        if (parsedValue.error) nextErrors.current_value = parsedValue.error;
+        setErrors(nextErrors);
+        const first = ['account', 'date', 'amount', 'current_value'].find(field => nextErrors[field]);
+        if (first) {
+            document.getElementById({ account: 'inversion-producto', date: 'inversion-fecha', amount: 'inversion-importe', current_value: 'inversion-valor' }[first])?.focus();
             return;
         }
-        setShowConfirm(true);
-    };
 
-    const handleConfirmSubmit = async () => {
-        setShowConfirm(false);
+        const contribution = form.movType === 'salida' ? `-${parsedAmount.value}` : parsedAmount.value;
+        const body = {
+            date: form.date,
+            account: form.account,
+            asset_type: form.asset_type,
+            contribution,
+            current_value: parsedValue.value,
+            notes: form.notes,
+        };
+
         setSaving(true);
-        const contribution = form.movType === 'entrada'
-            ? parseFloat(form.amount)
-            : -parseFloat(form.amount);
-
         try {
-            const method = editingId ? 'PUT' : 'POST';
-            const body = {
-                date: form.date,
-                account: form.account,
-                asset_type: form.asset_type,
-                contribution,
-                current_value: parseFloat(form.current_value) || 0,
-                notes: form.notes,
-            };
-
-            if (editingId) body.id = editingId;
-
-            const res = await fetch('/api/investments', {
-                method: method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-
-            if (res.ok) {
-                showMessage('success', `Movimiento ${editingId ? 'actualizado' : 'guardado'}`);
-                cancelEdit();
-                loadData();
-            } else {
-                const result = await res.json().catch(() => ({}));
-                showMessage('error', result.error || `Error al ${editingId ? 'actualizar' : 'guardar'}`);
-            }
+            await requestJson('/api/investments', jsonRequest(editingId ? 'PUT' : 'POST', editingId ? { ...body, id: editingId } : body));
+            toast({ text: editingId ? 'Movimiento actualizado' : `${MOVEMENTS[form.movType].saved} en ${form.account}` });
+            setEditingId(null);
+            setErrors({});
+            setForm(current => ({ ...emptyForm(null), account: current.account, asset_type: current.asset_type }));
+            await loadData({ silent: true });
         } catch (error) {
-            showMessage('error', 'Error de conexión');
-        }
-        setSaving(false);
-    };
-
-    const handleDelete = async (id) => {
-        if (!confirm('¿Eliminar este movimiento?')) return;
-        try {
-            const res = await fetch(`/api/investments?id=${id}`, { method: 'DELETE' });
-            if (res.ok) {
-                showMessage('success', 'Eliminado');
-                if (editingId === id) cancelEdit();
-                loadData();
-            } else {
-                const result = await res.json().catch(() => ({}));
-                showMessage('error', result.error || 'No se pudo eliminar');
-            }
-        } catch (error) {
-            showMessage('error', 'Error');
+            toast({ type: 'error', text: error.message });
+        } finally {
+            setSaving(false);
         }
     };
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
+    const handleDelete = async (inv) => {
+        const ok = await confirm({
+            title: 'Eliminar movimiento',
+            text: `Se eliminará el movimiento de ${inv.account} del ${formatDate(inv.date)}. No se puede deshacer.`,
+            confirmLabel: 'Eliminar',
+            danger: true,
+        });
+        if (!ok) return;
+        try {
+            await requestJson(`/api/investments?id=${inv.id}`, { method: 'DELETE' });
+            setInvestments(list => list.filter(i => i.id !== inv.id));
+            if (editingId === inv.id) cancelEdit();
+            toast({ text: 'Movimiento eliminado' });
+        } catch (error) {
+            toast({ type: 'error', text: error.message });
+        }
     };
 
-    const getMovementBadge = (contribution) => {
-        const val = parseFloat(contribution);
-        if (val > 0) return { label: 'Aportación', class: 'badge-success' };
-        if (val < 0) return { label: 'Venta', class: 'badge-danger' };
-        return { label: 'Rebalanceo', class: 'badge-primary' };
-    };
-
-    if (loading) {
-        return <div className="flex-center" style={{ minHeight: '400px' }}><div className="spinner"></div></div>;
+    if (status.loading || status.error) {
+        return (
+            <div className="page-container">
+                <div className="page-header"><h1 className="page-title">Registro de inversiones</h1></div>
+                <LoadState loading={status.loading} error={status.error} onRetry={() => loadData()} label="Cargando tus inversiones…" />
+            </div>
+        );
     }
 
     return (
         <div className="page-container">
             <div className="page-header">
                 <h1 className="page-title">Registro de inversiones</h1>
-                <p className="page-subtitle">Registra y gestiona tus movimientos de inversión</p>
+                <p className="page-subtitle">Apunta lo que aportas o retiras de cada producto y cuánto vale después.</p>
             </div>
 
-            {message.text && (
-                <div className={`alert alert-${message.type === 'success' ? 'success' : 'danger'}`}>
-                    {message.text}
-                </div>
-            )}
-
             {products.length === 0 ? (
-                <div className="alert alert-warning">
-                    No tienes productos de inversión. Ve a Productos inversión para crear al menos uno.
+                <div className="card">
+                    <EmptyState
+                        title="Todavía no tienes productos de inversión"
+                        text="Crea al menos uno (un fondo, un ETF, un plan de pensiones…) para registrar sus movimientos."
+                        action={<Link className="btn btn-primary" href="/productos">Crear un producto</Link>}
+                    />
                 </div>
             ) : (
                 <div className="grid grid-2 gap-lg">
-                    {/* Form */}
-                    <div className="card">
-                        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3>{editingId ? 'Editar movimiento' : 'Nuevo movimiento'}</h3>
-                            {editingId && (
-                                <button className="btn btn-sm btn-outline" onClick={cancelEdit}>
-                                    Cancelar
-                                </button>
-                            )}
+                    <section className="card" id="inversion-formulario" aria-labelledby="inversion-formulario-titulo">
+                        <div className="card-header">
+                            <h2 id="inversion-formulario-titulo">{editingId ? 'Editar movimiento' : 'Nuevo movimiento'}</h2>
                         </div>
                         <div className="card-body">
-                            <form onSubmit={handleSubmitClick}>
-                                <div className="form-group">
-                                    <label className="form-label">Producto de inversión</label>
+                            <form onSubmit={handleSubmit} noValidate>
+                                <Field
+                                    label="Producto de inversión"
+                                    htmlFor="inversion-producto"
+                                    hint={editingId ? 'El producto no se puede cambiar al editar.' : form.asset_type ? `Tipo: ${form.asset_type}` : undefined}
+                                    error={errors.account}
+                                >
                                     <select
+                                        id="inversion-producto"
                                         className="form-input form-select"
                                         value={form.account}
                                         onChange={(e) => handleProductChange(e.target.value)}
-                                        disabled={!!editingId} // Bloquear cambio de producto al editar por seguridad/simplicidad? O permitirlo? Permitirlo está bien.
+                                        disabled={Boolean(editingId)}
+                                        aria-describedby={errors.account ? 'inversion-producto-error' : 'inversion-producto-ayuda'}
                                     >
-                                        {products.map((p) => (
-                                            <option key={p.id} value={p.name}>{p.name}</option>
-                                        ))}
+                                        {products.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
                                     </select>
-                                    <small className="text-muted">Tipo: {form.asset_type}</small>
-                                </div>
+                                </Field>
 
-                                {/* Product Stats Panel */}
                                 {productStats && !editingId && (
-                                    <div className="impact-preview" style={{ marginBottom: 'var(--spacing-md)' }}>
-                                        <div className="impact-preview-title">📊 Estado actual del producto</div>
+                                    <div className="impact-preview mb-md">
+                                        <h3 className="impact-preview-title">Situación actual del producto</h3>
                                         <div className="impact-preview-row">
-                                            <span>Valor actual:</span>
-                                            <span className="font-semibold">{formatCurrency(productStats.currentValue)}</span>
+                                            <span>Valor actual</span>
+                                            <Money value={productStats.currentValue} className="font-semibold" />
                                         </div>
                                         <div className="impact-preview-row">
-                                            <span>Plusvalía:</span>
-                                            <span className={productStats.gain >= 0 ? 'text-success' : 'text-danger'}>
-                                                {formatCurrency(productStats.gain)} ({productStats.returnPct.toFixed(1)}%)
-                                            </span>
+                                            <span>Plusvalía</span>
+                                            <span><Money value={productStats.gain} signed /> ({formatSignedPct(productStats.returnPct)})</span>
                                         </div>
                                         <div className="impact-preview-row">
-                                            <span>Peso en cartera:</span>
-                                            <span>{productStats.weight.toFixed(1)}%</span>
+                                            <span>Peso en la cartera</span>
+                                            <span>{formatPct(productStats.weight)}</span>
                                         </div>
                                     </div>
                                 )}
 
                                 <div className="grid grid-2 gap-md">
-                                    <div className="form-group">
-                                        <label className="form-label">Fecha</label>
+                                    <Field label="Fecha" htmlFor="inversion-fecha" error={errors.date}>
                                         <input
+                                            id="inversion-fecha"
                                             type="date"
                                             className="form-input"
                                             value={form.date}
-                                            onChange={(e) => setForm({ ...form, date: e.target.value })}
+                                            onChange={(e) => updateForm('date', e.target.value)}
+                                            aria-invalid={Boolean(errors.date)}
+                                            aria-describedby={errors.date ? 'inversion-fecha-error' : undefined}
+                                            required
                                         />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Tipo de movimiento</label>
+                                    </Field>
+                                    <Field label="Tipo de movimiento" htmlFor="inversion-tipo">
                                         <select
+                                            id="inversion-tipo"
                                             className="form-input form-select"
                                             value={form.movType}
-                                            onChange={(e) => setForm({ ...form, movType: e.target.value })}
+                                            onChange={(e) => updateForm('movType', e.target.value)}
                                         >
-                                            <option value="entrada">Entrada (aportación)</option>
-                                            <option value="salida">Salida (venta/retirada)</option>
+                                            {Object.entries(MOVEMENTS).map(([value, movement]) => <option key={value} value={value}>{movement.option}</option>)}
                                         </select>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">{form.movType === 'salida' ? 'Importe retirado' : 'Importe aportado'} (€)</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
-                                            className="form-input"
-                                            value={form.amount}
-                                            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                                        />
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Valor total tras movimiento (€)</label>
-                                        <input
-                                            type="number"
-                                            step="0.01"
-                                            min="0"
-                                            className="form-input"
-                                            placeholder={impactPreview ? impactPreview.newValue.toFixed(2) : ''}
+                                    </Field>
+                                    {!isValueUpdate && (
+                                        <Field label={MOVEMENTS[form.movType].amountLabel} htmlFor="inversion-importe" error={errors.amount}>
+                                            <AmountInput
+                                                id="inversion-importe"
+                                                value={form.amount}
+                                                onChange={(value) => updateForm('amount', value)}
+                                                aria-invalid={Boolean(errors.amount)}
+                                                aria-describedby={errors.amount ? 'inversion-importe-error' : undefined}
+                                                required
+                                            />
+                                        </Field>
+                                    )}
+                                    <Field
+                                        label="Valor total después del movimiento (€)"
+                                        htmlFor="inversion-valor"
+                                        hint={impactPreview && !form.current_value ? `Estimación: ${amountToInput(impactPreview.newValue)} €` : 'Lo que vale ahora el producto.'}
+                                        error={errors.current_value}
+                                    >
+                                        <AmountInput
+                                            id="inversion-valor"
                                             value={form.current_value}
-                                            onChange={(e) => setForm({ ...form, current_value: e.target.value })}
+                                            onChange={(value) => updateForm('current_value', value)}
+                                            aria-invalid={Boolean(errors.current_value)}
+                                            aria-describedby={errors.current_value ? 'inversion-valor-error' : 'inversion-valor-ayuda'}
+                                            required
                                         />
-                                    </div>
+                                    </Field>
                                 </div>
 
-                                {/* Impact Preview (Only for new) */}
                                 {impactPreview && (
-                                    <div className={`smart-alert ${impactPreview.isEntry ? 'success' : 'warning'}`} style={{ marginTop: 'var(--spacing-md)' }}>
-                                        <span className="smart-alert-icon">{impactPreview.isEntry ? '📈' : '📉'}</span>
+                                    <div className={`smart-alert mb-md ${impactPreview.isEntry ? 'success' : 'warning'}`}>
                                         <div className="smart-alert-content">
                                             <div className="smart-alert-title">
-                                                {impactPreview.isEntry ? 'Esta aportación' : 'Esta salida'}
-                                                {' '}cambiará tu exposición
+                                                {impactPreview.isEntry ? 'Esta aportación' : 'Esta retirada'} cambiará tu exposición
                                             </div>
                                             <div className="smart-alert-desc">
-                                                De {impactPreview.currentWeight.toFixed(1)}% a {impactPreview.newWeight.toFixed(1)}% de tu cartera
+                                                De {formatPct(impactPreview.currentWeight)} a {formatPct(impactPreview.newWeight)} de tu cartera
                                             </div>
                                         </div>
                                     </div>
                                 )}
 
-                                <div className="form-group" style={{ marginTop: 'var(--spacing-md)' }}>
-                                    <label className="form-label">Notas</label>
+                                <Field label="Notas (opcional)" htmlFor="inversion-notas">
                                     <textarea
+                                        id="inversion-notas"
                                         className="form-input"
                                         rows="2"
                                         value={form.notes}
-                                        onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                                        onChange={(e) => updateForm('notes', e.target.value)}
                                     />
-                                </div>
-                                <div style={{ display: 'flex', gap: '1rem' }}>
+                                </Field>
+                                <div className="form-actions">
                                     <button type="submit" className="btn btn-primary" disabled={saving}>
-                                        {saving ? 'Guardando...' : editingId ? 'Actualizar movimiento' : 'Guardar movimiento'}
+                                        {saving ? 'Guardando…' : editingId ? 'Actualizar movimiento' : 'Guardar movimiento'}
                                     </button>
                                     {editingId && (
                                         <button type="button" className="btn btn-outline" onClick={cancelEdit}>
-                                            Cancelar
+                                            Cancelar edición
                                         </button>
                                     )}
                                 </div>
                             </form>
                         </div>
-                    </div>
+                    </section>
 
-                    {/* Recent Movements */}
-                    <div className="card">
-                        <div className="card-header"><h3>Últimos movimientos</h3></div>
+                    <section className="card" aria-labelledby="inversion-lista-titulo">
+                        <div className="card-header"><h2 id="inversion-lista-titulo">Últimos movimientos</h2></div>
                         <div className="card-body">
                             {investments.length === 0 ? (
-                                <div className="empty-state"><p>No hay movimientos registrados</p></div>
+                                <EmptyState title="Todavía no hay movimientos" text="Registra tu primera aportación con el formulario." />
                             ) : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '600px', overflowY: 'auto' }}>
+                                <ul className="record-list record-list-scroll">
                                     {investments.slice(0, 15).map((inv) => {
-                                        const badge = getMovementBadge(inv.contribution);
-                                        const gain = parseFloat(inv.current_value) - parseFloat(inv.contribution);
+                                        const contribution = Number(inv.contribution);
+                                        const badge = BADGES[movementOf(contribution)];
+                                        const date = formatDate(inv.date);
                                         return (
-                                            <div
-                                                key={inv.id}
-                                                style={{
-                                                    padding: '0.75rem',
-                                                    background: editingId === inv.id ? 'var(--bg-secondary)' : 'var(--bg-tertiary)',
-                                                    borderRadius: 'var(--border-radius-sm)',
-                                                    borderLeft: `3px solid ${parseFloat(inv.contribution) >= 0 ? 'var(--success)' : 'var(--danger)'}`,
-                                                    border: editingId === inv.id ? '1px solid var(--primary-color)' : ''
-                                                }}
-                                            >
-                                                <div className="flex-between" style={{ marginBottom: '0.25rem' }}>
-                                                    <div className="font-semibold">{inv.account}</div>
-                                                    <span className={`badge ${badge.class}`}>{badge.label}</span>
+                                            <li key={inv.id} className={`record-item record-item-${movementOf(contribution)} ${editingId === inv.id ? 'is-editing' : ''}`.trim()}>
+                                                <div className="record-item-head">
+                                                    <span className="font-semibold">{inv.account}</span>
+                                                    <span className={`badge ${badge.className}`}>{badge.label}</span>
                                                 </div>
-                                                <div className="flex-between text-sm">
-                                                    <span className="text-muted">
-                                                        {parseAppDate(inv.date)?.toLocaleDateString('es-ES') || inv.date}
-                                                    </span>
-                                                    <span className={parseFloat(inv.contribution) >= 0 ? 'text-success' : 'text-danger'}>
-                                                        {formatCurrency(inv.contribution)}
-                                                    </span>
+                                                <div className="record-item-meta">
+                                                    <span>{date}</span>
+                                                    {contribution !== 0 && <Money value={contribution} signed />}
                                                 </div>
-                                                <div className="flex-between text-sm mt-sm">
-                                                    <span className="text-muted">Valor actual:</span>
-                                                    <span className="font-semibold">{formatCurrency(inv.current_value)}</span>
+                                                <div className="record-item-meta">
+                                                    <span>Valor después</span>
+                                                    <Money value={inv.current_value} className="font-semibold" />
                                                 </div>
-                                                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                                                    <button
-                                                        className="btn btn-icon btn-secondary text-sm"
-                                                        onClick={() => handleEdit(inv)}
-                                                        style={{ padding: '4px 8px', flex: 1 }}
-                                                    >
-                                                        ✏️ Editar
+                                                <div className="record-actions">
+                                                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleEdit(inv)} aria-label={`Editar el movimiento de ${inv.account} del ${date}`}>
+                                                        Editar
                                                     </button>
-                                                    <button
-                                                        className="btn btn-icon btn-danger text-sm"
-                                                        onClick={() => handleDelete(inv.id)}
-                                                        style={{ padding: '4px 8px' }}
-                                                    >
-                                                        🗑️
+                                                    <button type="button" className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(inv)} aria-label={`Eliminar el movimiento de ${inv.account} del ${date}`}>
+                                                        Eliminar
                                                     </button>
                                                 </div>
-                                            </div>
+                                            </li>
                                         );
                                     })}
-                                </div>
+                                </ul>
                             )}
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Confirmation Dialog */}
-            {showConfirm && (
-                <div className="confirm-dialog-overlay" onClick={() => setShowConfirm(false)}>
-                    <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-                        <div className="confirm-dialog-icon">
-                            {form.movType === 'entrada' ? '💰' : '💸'}
-                        </div>
-                        <div className="confirm-dialog-title">
-                            {editingId ? 'Confirmar actualización' : `Confirmar ${form.movType === 'entrada' ? 'aportación' : 'salida'}`}
-                        </div>
-                        <div className="confirm-dialog-message">
-                            {editingId ? 'Estás actualizando este movimiento:' : `Estás ${form.movType === 'entrada' ? 'invirtiendo' : 'retirando'}:`}
-                            <br />
-                            <strong>{formatCurrency(parseFloat(form.amount) || 0)}</strong>{' '}
-                            {form.movType === 'entrada' ? 'en' : 'de'} <strong>{form.account}</strong>.
-                            <br />¿Deseas guardar?
-                        </div>
-                        <div className="confirm-dialog-actions">
-                            <button
-                                className="btn btn-secondary"
-                                onClick={() => setShowConfirm(false)}
-                            >
-                                Cancelar
-                            </button>
-                            <button
-                                className="btn btn-primary"
-                                onClick={handleConfirmSubmit}
-                            >
-                                Confirmar
-                            </button>
-                        </div>
-                    </div>
+                    </section>
                 </div>
             )}
         </div>

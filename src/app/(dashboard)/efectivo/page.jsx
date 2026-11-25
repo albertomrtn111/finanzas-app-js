@@ -1,408 +1,321 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { localDateKey, parseAppDate } from '@/lib/dateUtils';
+import { localDateKey } from '@/lib/dateUtils';
+import { formatDate } from '@/lib/dateFormat';
+import { formatPct } from '@/lib/moneyFormat';
+import { parseAmountInput, amountToInput } from '@/lib/amount';
 import { latestByAccount, totalLatestValue } from '@/lib/financialSnapshots';
+import { changeFromPrevious, jsonRequest, requestJson } from '@/lib/utils';
+import { AmountInput, EmptyState, Field, LoadState, Money, useFeedback } from '@/components/ui';
+
+const emptyForm = account => ({ date: localDateKey(), account, current_value: '', notes: '' });
+
+// Lleva el formulario a la vista y pone el foco en el saldo (sin animación si el usuario la ha reducido).
+function focusForm() {
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById('efectivo-formulario')?.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    document.getElementById('efectivo-saldo')?.focus({ preventScroll: true });
+}
 
 export default function EfectivoPage() {
+    const { toast, confirm } = useFeedback();
     const [snapshots, setSnapshots] = useState([]);
     const [investments, setInvestments] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [status, setStatus] = useState({ loading: true, error: '' });
     const [saving, setSaving] = useState(false);
-    const [message, setMessage] = useState({ type: '', text: '' });
     const [editingId, setEditingId] = useState(null);
+    const [form, setForm] = useState(() => emptyForm(''));
+    const [errors, setErrors] = useState({});
 
-    const initialFormState = {
-        date: localDateKey(),
-        account: '',
-        current_value: '',
-        notes: '',
-    };
-
-    const [form, setForm] = useState(initialFormState);
-
-    const loadData = useCallback(async () => {
-        setLoading(true);
+    // silent: actualiza los datos sin sustituir la página por la carga (después de guardar).
+    const loadData = useCallback(async ({ silent = false } = {}) => {
+        if (!silent) setStatus({ loading: true, error: '' });
         try {
-            const [cashRes, invRes] = await Promise.all([
-                fetch('/api/cash'),
-                fetch('/api/investments'),
-            ]);
-            if (cashRes.ok) {
-                const data = await cashRes.json();
-                const cashData = Array.isArray(data) ? data : [];
-                setSnapshots(cashData);
-                // Only set default if NOT editing and no account selected
-                if (cashData.length > 0) {
-                    setForm((f) => f.account ? f : ({ ...f, account: cashData[0].account }));
-                }
-            }
-            if (invRes.ok) {
-                const invData = await invRes.json();
-                setInvestments(Array.isArray(invData) ? invData : []);
-            }
+            const [cashData, investmentData] = await Promise.all([requestJson('/api/cash'), requestJson('/api/investments')]);
+            const cash = Array.isArray(cashData) ? cashData : [];
+            setSnapshots(cash);
+            setInvestments(Array.isArray(investmentData) ? investmentData : []);
+            if (cash.length) setForm(current => (current.account ? current : { ...current, account: cash[0].account }));
+            setStatus({ loading: false, error: '' });
         } catch (error) {
-            console.error('Error:', error);
+            if (silent) toast({ type: 'error', text: `No se ha podido actualizar la lista: ${error.message}`, action: { label: 'Recargar', onClick: () => window.location.reload() } });
+            else setStatus({ loading: false, error: error.message });
         }
-        setLoading(false);
-    }, []);
+    }, [toast]);
 
     useEffect(() => {
         const timer = setTimeout(() => { void loadData(); }, 0);
         return () => clearTimeout(timer);
     }, [loadData]);
 
-    const showMessage = (type, text) => {
-        setMessage({ type, text });
-        setTimeout(() => setMessage({ type: '', text: '' }), 3000);
+    const updateForm = (field, value) => {
+        setForm(current => ({ ...current, [field]: value }));
+        setErrors(current => ({ ...current, [field]: undefined }));
     };
 
     const cancelEdit = () => {
         setEditingId(null);
-        setForm({
-            ...initialFormState,
-            account: snapshots.length > 0 ? snapshots[0].account : ''
-        });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setErrors({});
+        setForm(emptyForm(snapshots[0]?.account || ''));
     };
 
-    const handleEdit = (snap) => {
-        setEditingId(snap.id);
+    const handleEdit = (snapshot) => {
+        setEditingId(snapshot.id);
+        setErrors({});
         setForm({
-            date: snap.date.split('T')[0],
-            account: snap.account,
-            current_value: snap.current_value,
-            notes: snap.notes || '',
+            date: String(snapshot.date).slice(0, 10),
+            account: snapshot.account,
+            current_value: amountToInput(snapshot.current_value),
+            notes: snapshot.notes || '',
         });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setTimeout(focusForm, 0);
     };
 
-    // Calculate current cash total (latest snapshot per account)
-    const cashByAccount = useMemo(() => {
-        return latestByAccount(snapshots);
-    }, [snapshots]);
+    // Último saldo de cada cuenta
+    const cashByAccount = useMemo(() => latestByAccount(snapshots), [snapshots]);
+    const totalCash = useMemo(() => totalLatestValue(snapshots), [snapshots]);
 
-    const totalCash = useMemo(() => {
-        return Object.values(cashByAccount).reduce((sum, snap) => sum + parseFloat(snap.current_value), 0);
-    }, [cashByAccount]);
-
-    // Previous month cash for trend
+    // Saldo total al cierre del mes anterior, para la variación
     const previousMonthCash = useMemo(() => {
         const now = new Date();
-        const cutoff = localDateKey(new Date(now.getFullYear(), now.getMonth(), 0));
-        return totalLatestValue(snapshots, cutoff);
+        return totalLatestValue(snapshots, localDateKey(new Date(now.getFullYear(), now.getMonth(), 0)));
     }, [snapshots]);
+    const cashVariation = previousMonthCash > 0 ? ((totalCash - previousMonthCash) / previousMonthCash) * 100 : null;
 
-    const cashVariation = previousMonthCash > 0
-        ? ((totalCash - previousMonthCash) / previousMonthCash) * 100
-        : 0;
-
-    // Calculate total patrimony for percentage
-    const totalInvestments = useMemo(() => {
-        return totalLatestValue(investments);
-    }, [investments]);
-
+    const totalInvestments = useMemo(() => totalLatestValue(investments), [investments]);
     const totalPatrimonio = totalCash + totalInvestments;
     const cashPercentage = totalPatrimonio > 0 ? (totalCash / totalPatrimonio) * 100 : 0;
 
-    // Current account liquidity for preview
-    const currentAccountCash = useMemo(() => {
-        if (!form.account) return 0;
-        return cashByAccount[form.account]
-            ? parseFloat(cashByAccount[form.account].current_value)
-            : 0;
-    }, [form.account, cashByAccount]);
+    // Variación de cada saldo respecto al anterior de su cuenta: se calcula una vez por cada carga.
+    const changes = useMemo(() => changeFromPrevious(snapshots), [snapshots]);
+    const uniqueAccounts = useMemo(() => [...new Set(snapshots.map(s => s.account))], [snapshots]);
 
-    // Liquidity preview
-    const liquidityPreview = useMemo(() => {
-        if (!form.current_value || !form.account) return null;
-        if (editingId) return null; // Disable preview while editing to avoid confusion with historical vs current
+    const parsedValue = parseAmountInput(form.current_value, { allowNegative: true, allowZero: true, label: 'El saldo' });
 
-        const newValue = parseFloat(form.current_value);
-        const diff = newValue - currentAccountCash;
-        return { currentValue: currentAccountCash, newValue, diff };
-    }, [form.current_value, form.account, currentAccountCash, editingId]);
+    // Vista previa del cambio de liquidez (solo al registrar un saldo nuevo)
+    let liquidityPreview = null;
+    if (!editingId && form.account && !parsedValue.error) {
+        const currentValue = Number(cashByAccount[form.account]?.current_value || 0);
+        const newValue = Number(parsedValue.value);
+        liquidityPreview = { currentValue, newValue, diff: newValue - currentValue };
+    }
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!form.account || form.current_value === '' || !Number.isFinite(Number(form.current_value))) {
-            showMessage('error', 'Completa cuenta y saldo');
+        const nextErrors = {};
+        if (!form.account.trim()) nextErrors.account = 'Indica la cuenta';
+        if (parsedValue.error) nextErrors.current_value = parsedValue.error;
+        if (!form.date) nextErrors.date = 'Indica la fecha';
+        setErrors(nextErrors);
+        if (Object.keys(nextErrors).length) {
+            document.getElementById(nextErrors.date ? 'efectivo-fecha' : nextErrors.account ? 'efectivo-cuenta' : 'efectivo-saldo')?.focus();
             return;
         }
 
         setSaving(true);
         try {
-            const method = editingId ? 'PUT' : 'POST';
-            const body = editingId ? { ...form, id: editingId } : form;
-
-            const res = await fetch('/api/cash', {
-                method: method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-
-            if (res.ok) {
-                showMessage('success', `Snapshot ${editingId ? 'actualizado' : 'guardado'}`);
-                cancelEdit();
-                loadData();
-            } else {
-                const data = await res.json();
-                showMessage('error', data.error || `Error al ${editingId ? 'actualizar' : 'guardar'}`);
-            }
+            const body = { date: form.date, account: form.account.trim(), current_value: parsedValue.value, notes: form.notes };
+            await requestJson('/api/cash', jsonRequest(editingId ? 'PUT' : 'POST', editingId ? { ...body, id: editingId } : body));
+            toast({ text: editingId ? 'Saldo actualizado' : `Saldo de ${body.account} guardado` });
+            setEditingId(null);
+            setForm(emptyForm(body.account));
+            await loadData({ silent: true });
         } catch (error) {
-            showMessage('error', 'Error de conexión');
+            toast({ type: 'error', text: error.message });
+        } finally {
+            setSaving(false);
         }
-        setSaving(false);
     };
 
-    const handleDelete = async (id) => {
-        if (!confirm('¿Eliminar este snapshot?')) return;
+    const handleDelete = async (snapshot) => {
+        const ok = await confirm({
+            title: 'Eliminar saldo',
+            text: `Se eliminará el saldo de ${snapshot.account} del ${formatDate(snapshot.date)}. No se puede deshacer.`,
+            confirmLabel: 'Eliminar',
+            danger: true,
+        });
+        if (!ok) return;
         try {
-            const res = await fetch(`/api/cash?id=${id}`, { method: 'DELETE' });
-            if (res.ok) {
-                showMessage('success', 'Eliminado');
-                if (editingId === id) cancelEdit();
-                loadData();
-            }
+            await requestJson(`/api/cash?id=${snapshot.id}`, { method: 'DELETE' });
+            setSnapshots(list => list.filter(s => s.id !== snapshot.id));
+            if (editingId === snapshot.id) cancelEdit();
+            toast({ text: 'Saldo eliminado' });
         } catch (error) {
-            showMessage('error', 'Error');
+            toast({ type: 'error', text: error.message });
         }
     };
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
-    };
-
-    // Unique accounts for suggestions
-    const uniqueAccounts = [...new Set(snapshots.map((s) => s.account))];
-
-    // Calculate trends for each snapshot
-    const getSnapshotTrend = (snapshot, idx) => {
-        const sameAccountSnapshots = snapshots
-            .filter(s => s.account === snapshot.account && new Date(s.date) < new Date(snapshot.date))
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-        if (sameAccountSnapshots.length === 0) return null;
-
-        const prevValue = parseFloat(sameAccountSnapshots[0].current_value);
-        const currValue = parseFloat(snapshot.current_value);
-        const diff = currValue - prevValue;
-
-        return { diff, isUp: diff >= 0 };
-    };
-
-    if (loading) {
-        return <div className="flex-center" style={{ minHeight: '400px' }}><div className="spinner"></div></div>;
+    if (status.loading || status.error) {
+        return (
+            <div className="page-container">
+                <div className="page-header"><h1 className="page-title">Efectivo</h1></div>
+                <LoadState loading={status.loading} error={status.error} onRetry={() => loadData()} label="Cargando tus saldos…" />
+            </div>
+        );
     }
 
     return (
         <div className="page-container">
             <div className="page-header">
-                <h1 className="page-title">Registro de efectivo</h1>
-                <p className="page-subtitle">Registra el saldo de tus cuentas bancarias (snapshots mensuales)</p>
+                <h1 className="page-title">Efectivo</h1>
+                <p className="page-subtitle">Apunta el saldo de tus cuentas bancarias; con un saldo al mes basta para seguir tu liquidez.</p>
             </div>
 
-            {message.text && (
-                <div className={`alert alert-${message.type === 'success' ? 'success' : 'danger'}`}>
-                    {message.text}
-                </div>
-            )}
-
-            {/* Liquidity Dashboard */}
-            <div className="kpi-grid" style={{ marginBottom: 'var(--spacing-lg)' }}>
+            <div className="kpi-grid mb-lg">
                 <div className="kpi-card-enhanced">
                     <div className="kpi-label">Total efectivo actual</div>
-                    <div className="kpi-value" style={{ color: 'var(--primary)' }}>
-                        {formatCurrency(totalCash)}
-                    </div>
+                    <div className="kpi-value kpi-accent"><Money value={totalCash} /></div>
                 </div>
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Variación vs mes anterior</div>
-                    <div className="kpi-main">
-                        <div className={`kpi-value ${cashVariation >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                            {formatCurrency(totalCash - previousMonthCash)}
-                        </div>
-                    </div>
-                    {previousMonthCash > 0 && (
+                    <div className="kpi-label">Variación frente al mes anterior</div>
+                    <div className="kpi-value"><Money value={totalCash - previousMonthCash} signed /></div>
+                    {cashVariation !== null && (
                         <div className="kpi-trend">
-                            <span className={`trend ${cashVariation >= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(cashVariation).toFixed(1)}%
+                            <span className={cashVariation >= 0 ? 'text-success' : 'text-danger'}>
+                                {cashVariation > 0 ? `Sube un ${formatPct(cashVariation)}` : cashVariation < 0 ? `Baja un ${formatPct(-cashVariation)}` : 'Sin cambios'}
                             </span>
                         </div>
                     )}
                 </div>
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">% del patrimonio</div>
-                    <div className="kpi-value">{cashPercentage.toFixed(1)}%</div>
-                    <div className="kpi-trend">
-                        <span className="text-muted text-sm">
-                            {cashPercentage > 30
-                                ? '💡 Alta liquidez'
-                                : cashPercentage < 10
-                                    ? '⚠️ Baja liquidez'
-                                    : 'Equilibrado'}
-                        </span>
+                    <div className="kpi-label">Parte de tu patrimonio</div>
+                    <div className="kpi-value">{formatPct(cashPercentage)}</div>
+                    <div className="kpi-trend text-muted text-sm">
+                        {cashPercentage > 30 ? 'Liquidez alta' : cashPercentage < 10 ? 'Liquidez baja' : 'Equilibrado'}
                     </div>
                 </div>
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Cuentas activas</div>
+                    <div className="kpi-label">Cuentas con saldo</div>
                     <div className="kpi-value">{Object.keys(cashByAccount).length}</div>
                 </div>
             </div>
 
             <div className="grid grid-2 gap-lg">
-                {/* Form */}
-                <div className="card">
-                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <h3>{editingId ? 'Editar snapshot' : 'Nuevo snapshot'}</h3>
-                        {editingId && (
-                            <button className="btn btn-sm btn-outline" onClick={cancelEdit}>
-                                Cancelar
-                            </button>
-                        )}
+                <section className="card" id="efectivo-formulario" aria-labelledby="efectivo-formulario-titulo">
+                    <div className="card-header">
+                        <h2 id="efectivo-formulario-titulo">{editingId ? 'Editar saldo' : 'Nuevo saldo'}</h2>
                     </div>
                     <div className="card-body">
-                        <form onSubmit={handleSubmit}>
+                        <form onSubmit={handleSubmit} noValidate>
                             <div className="grid grid-2 gap-md">
-                                <div className="form-group">
-                                    <label className="form-label">Fecha</label>
+                                <Field label="Fecha" htmlFor="efectivo-fecha" error={errors.date}>
                                     <input
+                                        id="efectivo-fecha"
                                         type="date"
                                         className="form-input"
                                         value={form.date}
-                                        onChange={(e) => setForm({ ...form, date: e.target.value })}
+                                        onChange={(e) => updateForm('date', e.target.value)}
+                                        aria-invalid={Boolean(errors.date)}
+                                        aria-describedby={errors.date ? 'efectivo-fecha-error' : undefined}
+                                        required
                                     />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Cuenta</label>
+                                </Field>
+                                <Field label="Cuenta" htmlFor="efectivo-cuenta" error={errors.account}>
                                     <input
+                                        id="efectivo-cuenta"
                                         type="text"
                                         className="form-input"
-                                        placeholder="ej: Caixa, Trade Republic..."
-                                        list="cuentas"
+                                        placeholder="Por ejemplo, CaixaBank"
+                                        list="efectivo-cuentas"
+                                        maxLength={150}
                                         value={form.account}
-                                        onChange={(e) => setForm({ ...form, account: e.target.value })}
+                                        onChange={(e) => updateForm('account', e.target.value)}
+                                        aria-invalid={Boolean(errors.account)}
+                                        aria-describedby={errors.account ? 'efectivo-cuenta-error' : undefined}
+                                        required
                                     />
-                                    <datalist id="cuentas">
-                                        {uniqueAccounts.map((acc) => (
-                                            <option key={acc} value={acc} />
-                                        ))}
+                                    <datalist id="efectivo-cuentas">
+                                        {uniqueAccounts.map((account) => <option key={account} value={account} />)}
                                     </datalist>
-                                </div>
+                                </Field>
                             </div>
-                            <div className="form-group">
-                                <label className="form-label">Saldo (€)</label>
-                                <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    className="form-input"
+                            <Field label="Saldo (€)" htmlFor="efectivo-saldo" hint="Puede ser negativo si la cuenta está en descubierto." error={errors.current_value}>
+                                <AmountInput
+                                    id="efectivo-saldo"
                                     value={form.current_value}
-                                    onChange={(e) => setForm({ ...form, current_value: e.target.value })}
+                                    onChange={(value) => updateForm('current_value', value)}
+                                    aria-invalid={Boolean(errors.current_value)}
+                                    aria-describedby={errors.current_value ? 'efectivo-saldo-error' : 'efectivo-saldo-ayuda'}
+                                    required
                                 />
-                            </div>
+                            </Field>
 
-                            {/* Liquidity Preview (Hidden on edit) */}
-                            {liquidityPreview && (
-                                <div className={`smart-alert ${liquidityPreview.diff >= 0 ? 'success' : 'warning'}`}>
-                                    <span className="smart-alert-icon">{liquidityPreview.diff >= 0 ? '📈' : '📉'}</span>
+                            {liquidityPreview && liquidityPreview.diff !== 0 && (
+                                <div className={`smart-alert mb-md ${liquidityPreview.diff >= 0 ? 'success' : 'warning'}`}>
                                     <div className="smart-alert-content">
-                                        <div className="smart-alert-title">Tu liquidez cambiará</div>
+                                        <div className="smart-alert-title">Tu liquidez en esta cuenta cambiará</div>
                                         <div className="smart-alert-desc">
-                                            De {formatCurrency(liquidityPreview.currentValue)} a {formatCurrency(liquidityPreview.newValue)}
-                                            {' '}({liquidityPreview.diff >= 0 ? '+' : ''}{formatCurrency(liquidityPreview.diff)})
+                                            De <Money value={liquidityPreview.currentValue} /> a <Money value={liquidityPreview.newValue} /> (<Money value={liquidityPreview.diff} signed />)
                                         </div>
                                     </div>
                                 </div>
                             )}
 
-                            <div className="form-group" style={{ marginTop: 'var(--spacing-md)' }}>
-                                <label className="form-label">Notas (opcional)</label>
+                            <Field label="Notas (opcional)" htmlFor="efectivo-notas">
                                 <textarea
+                                    id="efectivo-notas"
                                     className="form-input"
                                     rows="2"
                                     value={form.notes}
-                                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                                    onChange={(e) => updateForm('notes', e.target.value)}
                                 />
-                            </div>
+                            </Field>
 
-                            <div style={{ display: 'flex', gap: '1rem' }}>
+                            <div className="form-actions">
                                 <button type="submit" className="btn btn-primary" disabled={saving}>
-                                    {saving ? 'Guardando...' : editingId ? 'Actualizar snapshot' : 'Guardar snapshot'}
+                                    {saving ? 'Guardando…' : editingId ? 'Actualizar saldo' : 'Guardar saldo'}
                                 </button>
                                 {editingId && (
                                     <button type="button" className="btn btn-outline" onClick={cancelEdit}>
-                                        Cancelar
+                                        Cancelar edición
                                     </button>
                                 )}
                             </div>
                         </form>
                     </div>
-                </div>
+                </section>
 
-                {/* Recent Snapshots */}
-                <div className="card">
-                    <div className="card-header"><h3>Últimos snapshots</h3></div>
+                <section className="card" aria-labelledby="efectivo-lista-titulo">
+                    <div className="card-header"><h2 id="efectivo-lista-titulo">Últimos saldos</h2></div>
                     <div className="card-body">
                         {snapshots.length === 0 ? (
-                            <div className="empty-state"><p>No hay snapshots registrados</p></div>
+                            <EmptyState title="Todavía no hay saldos" text="Apunta el saldo de tu cuenta principal para empezar." />
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '500px', overflowY: 'auto' }}>
-                                {snapshots.slice(0, 20).map((s, idx) => {
-                                    const trend = getSnapshotTrend(s, idx);
+                            <ul className="record-list record-list-scroll">
+                                {snapshots.slice(0, 20).map((s) => {
+                                    const change = changes.get(s.id);
+                                    const date = formatDate(s.date);
                                     return (
-                                        <div
-                                            key={s.id}
-                                            style={{
-                                                padding: '0.75rem',
-                                                background: editingId === s.id ? 'var(--bg-secondary)' : 'var(--bg-tertiary)',
-                                                borderRadius: 'var(--border-radius-sm)',
-                                                border: editingId === s.id ? '1px solid var(--primary-color)' : '',
-                                            }}
-                                        >
-                                            <div className="flex-between" style={{ marginBottom: '0.25rem' }}>
-                                                <div className="font-semibold">{s.account}</div>
-                                                <span className="text-success font-semibold">
-                                                    {formatCurrency(s.current_value)}
-                                                </span>
+                                        <li key={s.id} className={`record-item ${editingId === s.id ? 'is-editing' : ''}`.trim()}>
+                                            <div className="record-item-head">
+                                                <span className="font-semibold">{s.account}</span>
+                                                <Money value={s.current_value} className="font-semibold" />
                                             </div>
-                                            <div className="flex-between text-sm">
-                                                <span className="text-muted">
-                                                    {parseAppDate(s.date)?.toLocaleDateString('es-ES') || s.date}
-                                                </span>
-                                                {trend && (
-                                                    <span className={`trend ${trend.isUp ? 'trend-up' : 'trend-down'}`}>
-                                                        {trend.isUp ? '+' : ''}{formatCurrency(trend.diff)}
+                                            <div className="record-item-meta">
+                                                <span>{date}</span>
+                                                {change !== undefined && change !== 0 && (
+                                                    <span>
+                                                        <Money value={change} signed /> <span className="text-muted">frente al anterior</span>
                                                     </span>
                                                 )}
                                             </div>
-                                            {s.notes && (
-                                                <div className="text-muted text-sm mt-sm">{s.notes}</div>
-                                            )}
-
-                                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                                                <button
-                                                    className="btn btn-icon btn-secondary text-sm"
-                                                    onClick={() => handleEdit(s)}
-                                                    style={{ padding: '4px 8px', flex: 1 }}
-                                                >
-                                                    ✏️ Editar
+                                            {s.notes && <p className="record-item-note">{s.notes}</p>}
+                                            <div className="record-actions">
+                                                <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleEdit(s)} aria-label={`Editar el saldo de ${s.account} del ${date}`}>
+                                                    Editar
                                                 </button>
-                                                <button
-                                                    className="btn btn-icon btn-danger text-sm"
-                                                    onClick={() => handleDelete(s.id)}
-                                                    style={{ padding: '4px 8px' }}
-                                                >
-                                                    🗑️
+                                                <button type="button" className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(s)} aria-label={`Eliminar el saldo de ${s.account} del ${date}`}>
+                                                    Eliminar
                                                 </button>
                                             </div>
-                                        </div>
+                                        </li>
                                     );
                                 })}
-                            </div>
+                            </ul>
                         )}
                     </div>
-                </div>
+                </section>
             </div>
         </div>
     );

@@ -1,180 +1,121 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { formatPct } from '@/lib/moneyFormat';
+import { jsonRequest, requestJson } from '@/lib/utils';
+import { EmptyState, Field, LoadState, Money, useFeedback } from '@/components/ui';
+
+const TABS = {
+    expense: { label: 'Categorías de gasto', singular: 'gasto' },
+    income: { label: 'Categorías de ingreso', singular: 'ingreso' },
+};
+
+// Total, número de movimientos y media mensual por categoría, recorriendo los movimientos una sola vez.
+function statsByCategory(movements) {
+    const groups = new Map();
+    let total = 0;
+    for (const movement of movements) {
+        const amount = Number(movement.amount) || 0;
+        total += amount;
+        const group = groups.get(movement.category) || { total: 0, count: 0, months: new Set() };
+        group.total += amount;
+        group.count += 1;
+        group.months.add(String(movement.date).slice(0, 7));
+        groups.set(movement.category, group);
+    }
+    const stats = new Map();
+    for (const [category, group] of groups) {
+        stats.set(category, {
+            total: group.total,
+            count: group.count,
+            monthlyAvg: group.total / Math.max(group.months.size, 1),
+            pctOfTotal: total > 0 ? (group.total / total) * 100 : 0,
+        });
+    }
+    return stats;
+}
 
 export default function CategoriasPage() {
+    const { toast, confirm } = useFeedback();
     const [tab, setTab] = useState('expense');
-    const [expenseCategories, setExpenseCategories] = useState([]);
-    const [incomeCategories, setIncomeCategories] = useState([]);
-    const [expenses, setExpenses] = useState([]);
-    const [incomes, setIncomes] = useState([]);
+    const [data, setData] = useState({ expense: [], income: [], expenses: [], incomes: [] });
     const [newName, setNewName] = useState('');
-    const [loading, setLoading] = useState(true);
+    const [nameError, setNameError] = useState('');
+    const [status, setStatus] = useState({ loading: true, error: '' });
     const [saving, setSaving] = useState(false);
-    const [message, setMessage] = useState({ type: '', text: '' });
 
-    const loadData = useCallback(async () => {
-        setLoading(true);
+    const loadData = useCallback(async ({ silent = false } = {}) => {
+        if (!silent) setStatus({ loading: true, error: '' });
         try {
-            const [expCatRes, incCatRes, expRes, incRes] = await Promise.all([
-                fetch('/api/categories?type=expense'),
-                fetch('/api/categories?type=income'),
-                fetch('/api/expenses'),
-                fetch('/api/income'),
+            const [expense, income, expenses, incomes] = await Promise.all([
+                requestJson('/api/categories?type=expense'),
+                requestJson('/api/categories?type=income'),
+                requestJson('/api/expenses'),
+                requestJson('/api/income'),
             ]);
-            if (expCatRes.ok) setExpenseCategories(await expCatRes.json());
-            if (incCatRes.ok) setIncomeCategories(await incCatRes.json());
-            if (expRes.ok) setExpenses(await expRes.json());
-            if (incRes.ok) setIncomes(await incRes.json());
+            setData({ expense, income, expenses, incomes });
+            setStatus({ loading: false, error: '' });
         } catch (error) {
-            console.error('Error cargando categorías:', error);
+            if (silent) toast({ type: 'error', text: `No se ha podido actualizar la lista: ${error.message}`, action: { label: 'Recargar', onClick: () => window.location.reload() } });
+            else setStatus({ loading: false, error: error.message });
         }
-        setLoading(false);
-    }, []);
+    }, [toast]);
 
     useEffect(() => {
         const timer = setTimeout(() => { void loadData(); }, 0);
         return () => clearTimeout(timer);
     }, [loadData]);
 
-    // Calculate stats per category
-    const categoryStats = useMemo(() => {
-        const stats = {};
-
-        // Expense categories
-        expenseCategories.forEach(cat => {
-            const catExpenses = expenses.filter(e => e.category === cat.name);
-            const total = catExpenses.reduce((sum, e) => sum + parseFloat(e.amount), 0);
-            const months = new Set(catExpenses.map(e => {
-                const d = new Date(e.date);
-                return `${d.getFullYear()}-${d.getMonth()}`;
-            })).size || 1;
-
-            stats[`expense-${cat.name}`] = {
-                total,
-                count: catExpenses.length,
-                monthlyAvg: total / months,
-                pctOfTotal: 0 // Will be calculated below
-            };
-        });
-
-        // Calculate total expenses for percentage
-        const totalExpenses = Object.entries(stats)
-            .filter(([key]) => key.startsWith('expense-'))
-            .map(([, value]) => value)
-            .reduce((sum, s) => sum + s.total, 0);
-
-        // Update percentages
-        expenseCategories.forEach(cat => {
-            if (stats[`expense-${cat.name}`]) {
-                stats[`expense-${cat.name}`].pctOfTotal = totalExpenses > 0
-                    ? (stats[`expense-${cat.name}`].total / totalExpenses) * 100
-                    : 0;
-            }
-        });
-
-        // Income categories
-        incomeCategories.forEach(cat => {
-            const catIncomes = incomes.filter(i => i.category === cat.name);
-            const total = catIncomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-            const months = new Set(catIncomes.map(i => {
-                const d = new Date(i.date);
-                return `${d.getFullYear()}-${d.getMonth()}`;
-            })).size || 1;
-
-            stats[`income-${cat.name}`] = {
-                total,
-                count: catIncomes.length,
-                monthlyAvg: total / months,
-            };
-        });
-
-        const totalIncomes = incomes.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-        incomeCategories.forEach(cat => {
-            if (stats[`income-${cat.name}`]) {
-                stats[`income-${cat.name}`].pctOfTotal = totalIncomes > 0
-                    ? (stats[`income-${cat.name}`].total / totalIncomes) * 100
-                    : 0;
-            }
-        });
-
-        return stats;
-    }, [expenseCategories, incomeCategories, expenses, incomes]);
-
-    const showMessage = (type, text) => {
-        setMessage({ type, text });
-        setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-    };
+    const expenseStats = useMemo(() => statsByCategory(data.expenses), [data.expenses]);
+    const incomeStats = useMemo(() => statsByCategory(data.incomes), [data.incomes]);
+    const categoryStats = tab === 'expense' ? expenseStats : incomeStats;
+    const categories = data[tab];
 
     const handleAdd = async (e) => {
         e.preventDefault();
-        if (!newName.trim()) {
-            showMessage('error', 'El nombre es obligatorio');
+        const name = newName.trim();
+        if (!name) {
+            setNameError('Escribe el nombre de la categoría');
+            document.getElementById('categoria-nombre')?.focus();
             return;
         }
 
         setSaving(true);
         try {
-            const res = await fetch('/api/categories', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newName.trim(), type: tab }),
-            });
-
-            if (res.ok) {
-                showMessage('success', 'Categoría añadida');
-                setNewName('');
-                loadData();
-            } else {
-                const data = await res.json();
-                showMessage('error', data.error || 'Error al añadir');
-            }
+            await requestJson('/api/categories', jsonRequest('POST', { name, type: tab }));
+            toast({ text: `Categoría «${name}» añadida` });
+            setNewName('');
+            await loadData({ silent: true });
         } catch (error) {
-            showMessage('error', 'Error de conexión');
+            toast({ type: 'error', text: error.message });
+        } finally {
+            setSaving(false);
         }
-        setSaving(false);
     };
 
     const handleDelete = async (name) => {
-        // Check if category has movements
-        const hasMovements = tab === 'expense'
-            ? expenses.some(e => e.category === name)
-            : incomes.some(i => i.category === name);
-
-        if (hasMovements) {
-            showMessage('error', `No se puede eliminar "${name}" porque tiene movimientos asociados`);
-            return;
-        }
-
-        if (!confirm(`¿Eliminar la categoría "${name}"?`)) return;
+        const ok = await confirm({
+            title: 'Eliminar categoría',
+            text: `Se eliminará la categoría «${name}». No se puede deshacer.`,
+            confirmLabel: 'Eliminar',
+            danger: true,
+        });
+        if (!ok) return;
 
         try {
-            const res = await fetch(`/api/categories?name=${encodeURIComponent(name)}&type=${tab}`, {
-                method: 'DELETE',
-            });
-
-            if (res.ok) {
-                showMessage('success', 'Categoría eliminada');
-                loadData();
-            } else {
-                const data = await res.json();
-                showMessage('error', data.error || 'Error al eliminar');
-            }
+            await requestJson(`/api/categories?name=${encodeURIComponent(name)}&type=${tab}`, { method: 'DELETE' });
+            setData(current => ({ ...current, [tab]: current[tab].filter(cat => cat.name !== name) }));
+            toast({ text: `Categoría «${name}» eliminada` });
         } catch (error) {
-            showMessage('error', 'Error de conexión');
+            toast({ type: 'error', text: error.message });
         }
     };
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
-    };
-
-    const categories = tab === 'expense' ? expenseCategories : incomeCategories;
-
-    if (loading) {
+    if (status.loading || status.error) {
         return (
-            <div className="flex-center" style={{ minHeight: '400px' }}>
-                <div className="spinner"></div>
+            <div className="page-container">
+                <div className="page-header"><h1 className="page-title">Categorías</h1></div>
+                <LoadState loading={status.loading} error={status.error} onRetry={() => loadData()} label="Cargando tus categorías…" />
             </div>
         );
     }
@@ -186,123 +127,95 @@ export default function CategoriasPage() {
                 <p className="page-subtitle">Gestiona las categorías de gastos e ingresos</p>
             </div>
 
-            {message.text && (
-                <div className={`alert alert-${message.type === 'success' ? 'success' : 'danger'}`}>
-                    {message.text}
-                </div>
-            )}
-
-            <div className="tabs">
-                <button
-                    className={`tab ${tab === 'expense' ? 'active' : ''}`}
-                    onClick={() => setTab('expense')}
-                >
-                    Categorías de gasto ({expenseCategories.length})
-                </button>
-                <button
-                    className={`tab ${tab === 'income' ? 'active' : ''}`}
-                    onClick={() => setTab('income')}
-                >
-                    Categorías de ingreso ({incomeCategories.length})
-                </button>
+            <div className="tabs" role="group" aria-label="Tipo de categoría">
+                {Object.entries(TABS).map(([key, item]) => (
+                    <button
+                        key={key}
+                        type="button"
+                        className={`tab ${tab === key ? 'active' : ''}`.trim()}
+                        aria-pressed={tab === key}
+                        onClick={() => { setTab(key); setNameError(''); }}
+                    >
+                        {item.label} ({data[key].length})
+                    </button>
+                ))}
             </div>
 
             <div className="grid grid-2 gap-lg">
-                <div className="card">
+                <section className="card" aria-labelledby="categorias-lista-titulo">
                     <div className="card-header">
-                        <h3>Listado con estadísticas</h3>
+                        <h2 id="categorias-lista-titulo">{TABS[tab].label}</h2>
                     </div>
                     <div className="card-body">
                         {categories.length === 0 ? (
-                            <div className="empty-state">
-                                <p className="text-muted">No hay categorías definidas</p>
-                            </div>
+                            <EmptyState title="Todavía no hay categorías" text={`Añade tu primera categoría de ${TABS[tab].singular} con el formulario.`} />
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            <ul className="record-list">
                                 {categories.map((cat) => {
-                                    const stats = categoryStats[`${tab}-${cat.name}`];
-                                    const hasMovements = stats && stats.count > 0;
-
+                                    const stats = categoryStats.get(cat.name);
+                                    const inUse = Boolean(stats?.count);
                                     return (
-                                        <div
-                                            key={cat.id}
-                                            style={{
-                                                padding: '1rem',
-                                                background: 'var(--bg-tertiary)',
-                                                borderRadius: 'var(--border-radius-sm)',
-                                            }}
-                                        >
-                                            <div className="flex-between" style={{ marginBottom: '0.5rem' }}>
+                                        <li key={cat.id} className="record-item">
+                                            <div className="record-item-head">
                                                 <span className="font-semibold">{cat.name}</span>
-                                                <button
-                                                    className="btn btn-icon"
-                                                    onClick={() => handleDelete(cat.name)}
-                                                    style={{
-                                                        color: hasMovements ? 'var(--text-muted)' : 'var(--danger)',
-                                                        cursor: hasMovements ? 'not-allowed' : 'pointer'
-                                                    }}
-                                                    title={hasMovements ? 'No se puede eliminar (tiene movimientos)' : 'Eliminar'}
-                                                >
-                                                    {hasMovements ? '🔒' : '🗑️'}
-                                                </button>
+                                                {inUse ? (
+                                                    <span className="text-muted text-sm">En uso</span>
+                                                ) : (
+                                                    <button type="button" className="btn btn-outline-danger btn-sm" onClick={() => handleDelete(cat.name)} aria-label={`Eliminar la categoría ${cat.name}`}>
+                                                        Eliminar
+                                                    </button>
+                                                )}
                                             </div>
-                                            {stats && (
-                                                <div className="grid grid-3 gap-sm text-sm">
-                                                    <div>
-                                                        <div className="text-muted">Media mensual</div>
-                                                        <div className="font-semibold">{formatCurrency(stats.monthlyAvg)}</div>
-                                                    </div>
-                                                    <div>
-                                                        <div className="text-muted">% del total</div>
-                                                        <div className="font-semibold">{stats.pctOfTotal.toFixed(1)}%</div>
-                                                    </div>
-                                                    <div>
-                                                        <div className="text-muted">Movimientos</div>
-                                                        <div className="font-semibold">{stats.count}</div>
-                                                    </div>
-                                                </div>
+                                            {stats ? (
+                                                <dl className="stat-grid">
+                                                    <div><dt>Media mensual</dt><dd><Money value={stats.monthlyAvg} /></dd></div>
+                                                    <div><dt>Parte del total</dt><dd>{formatPct(stats.pctOfTotal)}</dd></div>
+                                                    <div><dt>Movimientos</dt><dd>{stats.count}</dd></div>
+                                                </dl>
+                                            ) : (
+                                                <p className="record-item-note">Sin movimientos todavía.</p>
                                             )}
-                                        </div>
+                                        </li>
                                     );
                                 })}
-                            </div>
+                            </ul>
                         )}
                     </div>
-                </div>
+                </section>
 
-                <div className="card">
+                <section className="card" aria-labelledby="categorias-nueva-titulo">
                     <div className="card-header">
-                        <h3>Añadir nueva categoría</h3>
+                        <h2 id="categorias-nueva-titulo">Añadir categoría de {TABS[tab].singular}</h2>
                     </div>
                     <div className="card-body">
-                        <form onSubmit={handleAdd}>
-                            <div className="form-group">
-                                <label className="form-label">
-                                    Nombre de la categoría de {tab === 'expense' ? 'gasto' : 'ingreso'}
-                                </label>
+                        <form onSubmit={handleAdd} noValidate>
+                            <Field label="Nombre de la categoría" htmlFor="categoria-nombre" error={nameError}>
                                 <input
+                                    id="categoria-nombre"
                                     type="text"
                                     className="form-input"
-                                    placeholder="ej: Alimentación, Transporte..."
+                                    placeholder={tab === 'expense' ? 'Por ejemplo, Alimentación' : 'Por ejemplo, Nómina'}
+                                    maxLength={100}
                                     value={newName}
-                                    onChange={(e) => setNewName(e.target.value)}
+                                    onChange={(e) => { setNewName(e.target.value); setNameError(''); }}
+                                    aria-invalid={Boolean(nameError)}
+                                    aria-describedby={nameError ? 'categoria-nombre-error' : undefined}
+                                    required
                                 />
+                            </Field>
+                            <div className="form-actions">
+                                <button type="submit" className="btn btn-primary" disabled={saving}>
+                                    {saving ? 'Añadiendo…' : 'Añadir categoría'}
+                                </button>
                             </div>
-                            <button
-                                type="submit"
-                                className="btn btn-primary"
-                                disabled={saving}
-                            >
-                                {saving ? 'Añadiendo...' : 'Añadir categoría'}
-                            </button>
                         </form>
 
-                        <div className="alert alert-info" style={{ marginTop: 'var(--spacing-lg)' }}>
-                            <strong>💡 Consejo:</strong> Las categorías con movimientos asociados no se pueden eliminar.
-                            Primero deberás eliminar o reasignar los movimientos.
-                        </div>
+                        <p className="alert alert-info mt-lg">
+                            Las categorías con movimientos (o, en gastos, con presupuesto) no se pueden eliminar.
+                            Antes tendrás que eliminar o cambiar de categoría esos movimientos.
+                        </p>
                     </div>
-                </div>
+                </section>
             </div>
         </div>
     );

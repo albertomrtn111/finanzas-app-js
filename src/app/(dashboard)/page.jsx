@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
-import CustomTooltip from '@/components/charts/CustomTooltip';
 import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
 

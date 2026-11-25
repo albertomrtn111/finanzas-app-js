@@ -39,7 +39,7 @@
 }
 .toast {
   pointer-events: auto; display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 0.75rem 0.75rem 1rem;
-  border-radius: var(--border-radius); background: var(--gray-900, #111827); color: #F9FAFB; box-shadow: var(--shadow-md);
+  border-radius: var(--border-radius); background: var(--toast-bg, #111827); color: #F9FAFB; box-shadow: var(--shadow-md);
   border-left: 4px solid var(--success);
 }
 .toastError { border-left-color: var(--danger); }
