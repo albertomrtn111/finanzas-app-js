@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Modal from './Modal';
 import styles from './ui.module.css';
 
@@ -11,6 +11,27 @@ export function FeedbackProvider({ children }) {
     const [toasts, setToasts] = useState([]);
     const [confirmState, setConfirmState] = useState(null);
     const nextId = useRef(1);
+    const regionRef = useRef(null);
+
+    // La zona de avisos es un popover manual: así está en la capa superior del navegador, como las
+    // ventanas <dialog>, y un aviso nunca queda tapado por el fondo oscuro de una ventana abierta.
+    // Cada vez que se abre una ventana o llega un aviso se vuelve a mostrar para quedar encima.
+    const raise = useCallback(() => {
+        const region = regionRef.current;
+        if (!region?.showPopover) return;
+        try {
+            if (region.matches(':popover-open')) region.hidePopover();
+            region.showPopover();
+        } catch {
+            // Navegadores sin Popover API: la zona sigue visible como elemento fijo.
+        }
+    }, []);
+    useEffect(() => {
+        // Se muestra vacía desde el principio para que los lectores de pantalla anuncien los avisos.
+        raise();
+        window.addEventListener('nextfinance:capa-superior', raise);
+        return () => window.removeEventListener('nextfinance:capa-superior', raise);
+    }, [raise]);
 
     const dismiss = useCallback(id => setToasts(list => list.filter(toast => toast.id !== id)), []);
 
@@ -18,9 +39,10 @@ export function FeedbackProvider({ children }) {
     const toast = useCallback(({ type = 'success', text, action, duration }) => {
         const id = nextId.current++;
         setToasts(list => [...list.slice(-2), { id, type, text, action }]);
+        setTimeout(raise, 0);
         setTimeout(() => dismiss(id), duration ?? (type === 'error' ? 8000 : action ? 7000 : 4000));
         return id;
-    }, [dismiss]);
+    }, [dismiss, raise]);
 
     // await confirm({ title, text, confirmLabel, danger }) → true o false.
     const confirm = useCallback(options => new Promise(resolve => {
@@ -37,7 +59,7 @@ export function FeedbackProvider({ children }) {
     return (
         <FeedbackContext.Provider value={value}>
             {children}
-            <div className={styles.toasts} role="status" aria-live="polite">
+            <div ref={regionRef} popover="manual" className={styles.toasts} role="status" aria-live="polite">
                 {toasts.map(item => (
                     <div key={item.id} className={`${styles.toast} ${item.type === 'error' ? styles.toastError : ''}`.trim()} role={item.type === 'error' ? 'alert' : undefined}>
                         <span className={styles.toastText}>{item.text}</span>
@@ -52,7 +74,7 @@ export function FeedbackProvider({ children }) {
                 title={confirmState?.title}
                 footer={<>
                     <button type="button" className="btn btn-secondary" onClick={() => answer(false)}>{confirmState?.cancelLabel || 'Cancelar'}</button>
-                    <button type="button" className={`btn ${confirmState?.danger ? 'btn-danger' : 'btn-primary'}`} onClick={() => answer(true)} autoFocus>{confirmState?.confirmLabel}</button>
+                    <button type="button" className={`btn ${confirmState?.danger ? 'btn-danger' : 'btn-primary'}`} onClick={() => answer(true)} data-autofocus>{confirmState?.confirmLabel}</button>
                 </>}
             >
                 <p>{confirmState?.text}</p>

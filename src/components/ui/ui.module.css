@@ -33,6 +33,8 @@
 
 .toasts {
   position: fixed; z-index: 2000; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
+  /* Anula el estilo por defecto de [popover] (centrado, borde y fondo). */
+  inset: auto 16px calc(16px + env(safe-area-inset-bottom)) auto; margin: 0; padding: 0; border: 0; background: transparent; overflow: visible;
   display: flex; flex-direction: column; gap: 0.5rem; width: min(380px, calc(100vw - 32px)); pointer-events: none;
 }
 .toast {
