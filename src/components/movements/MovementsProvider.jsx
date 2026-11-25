@@ -1,10 +1,11 @@
 'use client';
 
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/ui';
 import { KIND_TEXT } from '@/lib/movementForm';
 import MovementForm from './MovementForm';
-import { useMovementActions } from './useMovementActions';
+import { useMovementActions, useMovementsChanged } from './useMovementActions';
 import styles from './movements.module.css';
 
 const MovementDialogContext = createContext(null);
@@ -15,6 +16,10 @@ const MovementDialogContext = createContext(null);
 export function MovementsProvider({ children }) {
     const [dialog, setDialog] = useState(null);
     const { remove } = useMovementActions();
+    const router = useRouter();
+    // Las pantallas que se calculan en el servidor (Resumen, Patrimonio, Inversiones) se vuelven a
+    // pedir en segundo plano al apuntar, editar, borrar o deshacer un movimiento desde cualquier sitio.
+    useMovementsChanged(() => router.refresh());
 
     const openMovement = useCallback(({ kind = 'expense', record = null } = {}) => {
         setDialog(current => ({ kind, record, key: (current?.key ?? 0) + 1 }));

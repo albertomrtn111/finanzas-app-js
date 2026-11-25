@@ -7,6 +7,7 @@ import { formatEuro, formatPct } from '@/lib/moneyFormat';
 import { amountToInput, parseAmountInput } from '@/lib/amount';
 import { jsonRequest, parseBudgetInputs, requestJson } from '@/lib/utils';
 import { AmountInput, EmptyState, Field, LoadState, Money, useFeedback } from '@/components/ui';
+import { useMovementsChanged } from '@/components/movements/useMovementActions';
 
 // Importe escrito en un campo → número (0 si está vacío o no es válido), para las cuentas en vivo.
 const amountValue = (text) => {
@@ -56,6 +57,13 @@ export default function PresupuestosPage() {
         const timer = setTimeout(() => { void loadData(); }, 0);
         return () => clearTimeout(timer);
     }, [loadData]);
+
+    // Si se apunta un gasto con el botón «+», se actualiza lo gastado sin tocar lo que se está escribiendo.
+    useMovementsChanged(() => {
+        const now = new Date();
+        const params = new URLSearchParams({ period: 'month', year: String(now.getFullYear()), month: String(now.getMonth()) });
+        requestJson(`/api/summary?${params.toString()}`).then(setSummary).catch(() => {});
+    });
 
     const handleChange = (category, value) => {
         setBudgets(current => ({ ...current, [category]: value }));
