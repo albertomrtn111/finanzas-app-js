@@ -47,6 +47,7 @@ Sin Docker vale cualquier Postgres local de usar y tirar; por ejemplo, PGlite co
 ## Datos
 
 - El registro de movimientos muestra páginas de 50 elementos. Los resúmenes y cálculos históricos consultan todos los movimientos del usuario.
+- Resumen, Inicio, Presupuestos y la herramienta `resumen_personal` del MCP usan el mismo cálculo (`src/lib/personalSummary.js`), en céntimos. El presupuesto solo compara las categorías que lo tienen; el resto aparece como gasto sin presupuesto. Un mes se compara con el anterior y un año con las mismas fechas del anterior; si el periodo está en curso, los dos lados se cortan en el mismo día. El presupuesto de un año en curso cuenta los meses transcurridos.
 - La importación admite CSV separados por coma o punto y coma, campos entrecomillados, fechas `AAAA-MM-DD` o `DD/MM/AAAA` e importes con punto o coma decimal. Valida las filas antes de enviarlas y conserva las filas fallidas para revisarlas. Límite por archivo: 5 MB.
 - La exportación ofrece JSON o ZIP con CSV. Puede abarcar todos los datos o los movimientos de un mes elegido. Presupuestos, productos y categorías se exportan completos también en la opción mensual, porque no son registros fechados.
 - Las rutas de API requieren una sesión de usuario salvo el registro y las rutas de autenticación. Los datos financieros se filtran por usuario.

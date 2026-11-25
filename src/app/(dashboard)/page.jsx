@@ -16,8 +16,8 @@ import { latestByAccount, totalLatestValue } from '@/lib/financialSnapshots';
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 
 export default function HomePage() {
-    const [incomes, setIncomes] = useState([]);
-    const [expenses, setExpenses] = useState([]);
+    const [home, setHome] = useState(null);
+    const [homeError, setHomeError] = useState('');
     const [investments, setInvestments] = useState([]);
     const [cashSnapshots, setCashSnapshots] = useState([]);
     const [budgets, setBudgets] = useState([]);
@@ -52,31 +52,35 @@ export default function HomePage() {
 
 
 
+    // Totales del periodo, últimos movimientos y último registro, calculados en el servidor.
+    // Es lo único que se vuelve a pedir al cambiar de periodo o al guardar un movimiento.
+    const loadHome = useCallback(async (signal) => {
+        setHomeError('');
+        try {
+            const res = await fetch(`/api/summary/home?period=${period}`, { signal });
+            if (!res.ok) throw new Error('No se pudo cargar el resumen del periodo');
+            const data = await res.json();
+            if (!signal?.aborted) setHome(data);
+        } catch (error) {
+            if (!signal?.aborted) setHomeError('No se pudo cargar el resumen del periodo. Inténtalo de nuevo.');
+        }
+    }, [period]);
+
     const loadData = useCallback(async () => {
         setLoading(true);
         setLoadError('');
         try {
-            const [incRes, expRes, invRes, cashRes, budRes, catRes, sessionRes] = await Promise.all([
-                fetch('/api/income'),
-                fetch('/api/expenses'),
+            const [invRes, cashRes, budRes, catRes, sessionRes] = await Promise.all([
                 fetch('/api/investments'),
                 fetch('/api/cash'),
                 fetch('/api/budgets'),
                 fetch('/api/categories?type=expense'),
                 fetch('/api/auth/session'),
             ]);
-            if ([incRes, expRes, invRes, cashRes, budRes, catRes, sessionRes].some(response => !response.ok)) {
+            if ([invRes, cashRes, budRes, catRes, sessionRes].some(response => !response.ok)) {
                 throw new Error('No se pudieron cargar todos los datos del panel');
             }
 
-            if (incRes.ok) {
-                const data = await incRes.json();
-                setIncomes(Array.isArray(data) ? data : []);
-            }
-            if (expRes.ok) {
-                const data = await expRes.json();
-                setExpenses(Array.isArray(data) ? data : []);
-            }
             if (invRes.ok) {
                 const data = await invRes.json();
                 setInvestments(Array.isArray(data) ? data : []);
@@ -111,8 +115,23 @@ export default function HomePage() {
         return () => clearTimeout(timer);
     }, [loadData]);
 
+    useEffect(() => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => { void loadHome(controller.signal); }, 0);
+        return () => { clearTimeout(timer); controller.abort(); };
+    }, [loadHome]);
+
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
+    };
+
+    // «hoy, 10:32» o «22 nov 2026, 18:05», con la hora del navegador.
+    const formatLastUpdate = (iso) => {
+        if (!iso) return 'aún no hay registros';
+        const d = new Date(iso);
+        const time = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        if (d.toDateString() === new Date().toDateString()) return `hoy, ${time}`;
+        return `${d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })}, ${time}`;
     };
 
     const formatTime = (dateStr) => {
@@ -153,18 +172,7 @@ export default function HomePage() {
         return periodInvestments.reduce((sum, i) => sum + parseFloat(i.contribution), 0);
     }, [investments, period]);
 
-    const periodTotals = useMemo(() => {
-        const now = new Date();
-        const inPeriod = record => {
-            const date = parseAppDate(record.date);
-            return date && date.getFullYear() === now.getFullYear() &&
-                (period === 'year' || date.getMonth() === now.getMonth());
-        };
-        return {
-            income: incomes.filter(inPeriod).reduce((total, item) => total + Number(item.amount), 0),
-            expenses: expenses.filter(inPeriod).reduce((total, item) => total + Number(item.amount), 0),
-        };
-    }, [incomes, expenses, period]);
+    const periodTotals = home?.totals ?? { income: 0, expenses: 0, savings: 0 };
 
     // Investment distribution by asset type
     const investmentsByType = useMemo(() => {
@@ -180,23 +188,8 @@ export default function HomePage() {
             .sort((a, b) => b.value - a.value);
     }, [investments]);
 
-    // Recent activity in the selected period (last 5 movements)
-    const recentActivity = useMemo(() => {
-        const now = new Date();
-        const allMovements = [
-            ...incomes.map(i => ({ ...i, type: 'income', title: i.source || i.category })),
-            ...expenses.map(e => ({ ...e, type: 'expense', title: e.category }))
-        ].filter(item => {
-            const date = parseAppDate(item.date);
-            return date && date.getFullYear() === now.getFullYear() &&
-                (period === 'year' || date.getMonth() === now.getMonth());
-        }).sort((a, b) => {
-            const dateA = parseAppDate(a.date) || 0;
-            const dateB = parseAppDate(b.date) || 0;
-            return dateB - dateA;
-        }).slice(0, 5);
-        return allMovements;
-    }, [incomes, expenses, period]);
+    // Últimos 5 movimientos del periodo, ya ordenados por el servidor.
+    const recentActivity = home?.recent ?? [];
 
     // Emergency fund goal (using total budget as target, cash as current)
     const emergencyFundGoal = useMemo(() => {
@@ -227,7 +220,7 @@ export default function HomePage() {
             if (res.ok) {
                 setShowIncomeModal(false);
                 setIncomeForm({ ...incomeForm, amount: '', notes: '' });
-                loadData();
+                void loadHome();
             } else {
                 const result = await res.json().catch(() => ({}));
                 setIncomeError(result.error || 'No se pudo guardar el ingreso');
@@ -257,7 +250,7 @@ export default function HomePage() {
             if (res.ok) {
                 setShowExpenseModal(false);
                 setExpenseForm({ ...expenseForm, amount: '', notes: '' });
-                loadData();
+                void loadHome();
             } else {
                 const result = await res.json().catch(() => ({}));
                 setExpenseError(result.error || 'No se pudo guardar el gasto');
@@ -268,7 +261,7 @@ export default function HomePage() {
         setSaving(false);
     };
 
-    if (loading) {
+    if (loading || (!home && !homeError)) {
         return (
             <div className="dashboard-home">
                 <div className="flex-center" style={{ minHeight: '400px' }}>
@@ -278,9 +271,10 @@ export default function HomePage() {
         );
     }
 
-    if (loadError) {
+    if (loadError || (!home && homeError)) {
         return <div className="page-container"><div className="alert alert-danger" role="alert">
-            {loadError} <button className="btn btn-secondary" onClick={loadData}>Reintentar</button>
+            {loadError || homeError}{' '}
+            <button className="btn btn-secondary" onClick={() => { if (loadError) void loadData(); void loadHome(); }}>Reintentar</button>
         </div></div>;
     }
 
@@ -291,9 +285,10 @@ export default function HomePage() {
                 <div className="dashboard-greeting">
                     <h1>Hola, {userName} 👋</h1>
                     <p>Aquí tienes el resumen de tu dinero {period === 'month' ? 'este mes' : 'este año'}</p>
-                    <div className="dashboard-meta">
-                        Última actualización: hoy {new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                    <div className="dashboard-meta" title="Momento en que se guardó el último gasto, ingreso, saldo o inversión">
+                        Última actualización: {formatLastUpdate(home?.lastRecordAt)}
                     </div>
+                    {homeError && <div className="text-danger text-sm" role="alert">{homeError}</div>}
                 </div>
                 <div className="dashboard-actions">
                     <select
@@ -320,7 +315,7 @@ export default function HomePage() {
                         <div className="home-period-summary">
                             <div><span>Ingresos del periodo</span><strong className="text-success">{formatCurrency(periodTotals.income)}</strong></div>
                             <div><span>Gastos del periodo</span><strong className="text-danger">{formatCurrency(periodTotals.expenses)}</strong></div>
-                            <div><span>Ahorro del periodo</span><strong>{formatCurrency(periodTotals.income - periodTotals.expenses)}</strong></div>
+                            <div><span>Ahorro del periodo</span><strong>{formatCurrency(periodTotals.savings)}</strong></div>
                         </div>
                         <div className="quick-actions">
                             <button
@@ -364,7 +359,7 @@ export default function HomePage() {
                         </div>
                     </div>
                     <div className="premium-card-footer">
-                        <Link href="/resumen" className="view-all-link">
+                        <Link href="/registro" className="view-all-link">
                             Ver todos <span>→</span>
                         </Link>
                     </div>
@@ -458,14 +453,17 @@ export default function HomePage() {
                     <div className="premium-card-body">
                         <div className="networth-breakdown">
                             <div className="networth-item">
-                                <div className="networth-label">Activos</div>
-                                <div className="networth-value assets">{formatCurrency(totalNetWorth)}</div>
+                                <div className="networth-label">Efectivo</div>
+                                <div className="networth-value assets">{formatCurrency(currentCash)}</div>
                             </div>
                             <div className="networth-item">
-                                <div className="networth-label">Pasivos</div>
-                                <div className="networth-value liabilities">{formatCurrency(0)}</div>
+                                <div className="networth-label">Inversiones</div>
+                                <div className="networth-value assets">{formatCurrency(currentInvestments)}</div>
                             </div>
                         </div>
+                        <p className="text-muted text-sm" style={{ marginTop: 0 }}>
+                            Suma de efectivo e inversiones. No descuenta deudas: la app aún no registra pasivos.
+                        </p>
 
                         {emergencyFundGoal.target > 0 && (
                             <div className="goal-section">

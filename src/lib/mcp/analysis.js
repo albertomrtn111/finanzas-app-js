@@ -1,24 +1,16 @@
 // Cálculos puros sobre los datos personales. Sin base de datos, para poder probarlos.
 import { dateKey, fromCents, toCents } from './serialize.js';
+import { computePersonalSummary, monthsInRange as sharedMonthsInRange } from '../personalSummary.js';
 
 export function monthKey(value) {
     return dateKey(value).slice(0, 7);
 }
 
 // Meses naturales que toca el periodo [from, to], ambos AAAA-MM-DD.
-export function monthsInRange(from, to) {
-    const months = [];
-    let [year, month] = from.slice(0, 7).split('-').map(Number);
-    const [endYear, endMonth] = to.slice(0, 7).split('-').map(Number);
-    while (year < endYear || (year === endYear && month <= endMonth)) {
-        months.push(`${year}-${String(month).padStart(2, '0')}`);
-        month += 1;
-        if (month > 12) { month = 1; year += 1; }
-    }
-    return months;
-}
+export const monthsInRange = sharedMonthsInRange;
 
-// Periodo anterior de la misma duración en días.
+// Periodo anterior de la misma duración en días. El resumen ya no lo usa para comparar
+// (ver comparisonRanges en ../personalSummary.js); se mantiene para tramos sueltos.
 export function previousRange(from, to) {
     const start = new Date(`${from}T00:00:00.000Z`);
     const end = new Date(`${to}T00:00:00.000Z`);
@@ -28,73 +20,64 @@ export function previousRange(from, to) {
     return { from: dateKey(prevStart), to: dateKey(prevEnd) };
 }
 
-function sumBy(records, keyFn) {
-    const totals = new Map();
-    for (const record of records) {
-        const key = keyFn(record) ?? 'Sin clasificar';
-        totals.set(key, (totals.get(key) || 0) + toCents(record.amount));
-    }
-    return totals;
+// Pasa el resumen común (../personalSummary.js) al formato que devuelve resumen_personal.
+// Mantiene todos los campos de siempre; los añadidos van al final de cada bloque.
+export function toMcpSummary(summary) {
+    const { period, totals, budget, comparison } = summary;
+    return {
+        periodo: { desde: period.from, hasta: period.to, meses: period.months, meses_presupuesto: budget.months, en_curso: period.partial },
+        ingresos: totals.income,
+        gastos: totals.expenses,
+        ahorro: totals.savings,
+        tasa_ahorro_pct: totals.savingsRate,
+        presupuesto_total: budget.total,
+        // Solo el gasto de las categorías con presupuesto frente a ese presupuesto.
+        gasto_sobre_presupuesto_pct: budget.ratio,
+        categorias_desviadas: budget.overCategories,
+        categorias_sin_presupuesto: budget.unbudgetedCategories,
+        por_categoria: summary.byCategory.map(c => ({
+            categoria: c.category, gastado: c.spent, presupuesto: c.budget,
+            desviacion: c.deviation, desviacion_pct: c.deviationPct, peso_pct: c.sharePct,
+        })),
+        ingresos_por_categoria: summary.incomeByCategory.map(c => ({ categoria: c.name, importe: c.amount })),
+        por_mes: summary.monthly.map(m => ({ mes: m.month, ingresos: m.income, gastos: m.expenses, ahorro: m.savings })),
+        mayores_gastos: summary.topExpenses.map(r => ({
+            id: r.id, fecha: r.date, importe: r.amount, categoria: r.category, subcategoria: r.subcategory, notas: r.notes,
+        })),
+        periodo_anterior: {
+            desde: comparison.previous.from,
+            hasta: comparison.previous.to,
+            ingresos: comparison.previous.income,
+            gastos: comparison.previous.expenses,
+            ahorro: comparison.previous.savings,
+            variacion_gastos_pct: comparison.change.expensesPct,
+            variacion_ingresos_pct: comparison.change.incomePct,
+            variacion_ahorro: comparison.change.savings,
+            tipo: comparison.kind,
+            parcial: comparison.partial,
+            criterio: comparison.description,
+            comparado_con: {
+                desde: comparison.current.from, hasta: comparison.current.to,
+                ingresos: comparison.current.income, gastos: comparison.current.expenses, ahorro: comparison.current.savings,
+            },
+        },
+        presupuesto: {
+            estado: budget.status,
+            presupuestado: budget.total,
+            gastado_en_categorias_con_presupuesto: budget.spent,
+            restante: budget.remaining,
+            gasto_sin_presupuesto: budget.unbudgetedSpent,
+            por_categoria: budget.categories.map(c => ({
+                categoria: c.category, mensual: c.monthly, presupuesto: c.budget, gastado: c.spent, restante: c.remaining, consumido_pct: c.ratio,
+            })),
+        },
+        gasto_por_tipo: summary.byType.map(t => ({ tipo: t.name, importe: t.amount })),
+    };
 }
 
-// Resumen de un periodo: totales, ahorro, gasto por categoría frente al presupuesto y serie mensual.
-export function personalSummary({ expenses, incomes, budgets, from, to, previous = null }) {
-    const income = incomes.reduce((sum, r) => sum + toCents(r.amount), 0);
-    const expense = expenses.reduce((sum, r) => sum + toCents(r.amount), 0);
-    const months = monthsInRange(from, to);
-    const budgetByCategory = new Map(budgets.map(b => [b.category, toCents(b.monthly_amount)]));
-    const spentByCategory = sumBy(expenses, r => r.category);
-    const categories = new Set([...spentByCategory.keys(), ...[...budgetByCategory.keys()].filter(c => budgetByCategory.get(c) > 0)]);
-
-    const byCategory = [...categories].map(category => {
-        const spent = spentByCategory.get(category) || 0;
-        const monthly = budgetByCategory.get(category) ?? null;
-        const budget = monthly === null ? null : monthly * months.length;
-        return {
-            categoria: category,
-            gastado: fromCents(spent),
-            presupuesto: budget === null ? null : fromCents(budget),
-            desviacion: budget === null ? null : fromCents(spent - budget),
-            desviacion_pct: budget ? Math.round(((spent - budget) / budget) * 1000) / 10 : null,
-            peso_pct: expense ? Math.round((spent / expense) * 1000) / 10 : 0,
-        };
-    }).sort((a, b) => b.gastado - a.gastado);
-
-    const monthly = months.map(month => {
-        const inc = incomes.filter(r => monthKey(r.date) === month).reduce((s, r) => s + toCents(r.amount), 0);
-        const exp = expenses.filter(r => monthKey(r.date) === month).reduce((s, r) => s + toCents(r.amount), 0);
-        return { mes: month, ingresos: fromCents(inc), gastos: fromCents(exp), ahorro: fromCents(inc - exp) };
-    });
-
-    const totalBudget = byCategory.reduce((s, c) => s + (c.presupuesto === null ? 0 : toCents(c.presupuesto)), 0);
-    const result = {
-        periodo: { desde: from, hasta: to, meses: months.length },
-        ingresos: fromCents(income),
-        gastos: fromCents(expense),
-        ahorro: fromCents(income - expense),
-        tasa_ahorro_pct: income ? Math.round(((income - expense) / income) * 1000) / 10 : null,
-        presupuesto_total: fromCents(totalBudget),
-        gasto_sobre_presupuesto_pct: totalBudget ? Math.round((expense / totalBudget) * 1000) / 10 : null,
-        categorias_desviadas: byCategory.filter(c => c.desviacion !== null && c.desviacion > 0).map(c => c.categoria),
-        categorias_sin_presupuesto: byCategory.filter(c => c.presupuesto === null).map(c => c.categoria),
-        por_categoria: byCategory,
-        ingresos_por_categoria: [...sumBy(incomes, r => r.category)].map(([categoria, cents]) => ({ categoria, importe: fromCents(cents) }))
-            .sort((a, b) => b.importe - a.importe),
-        por_mes: monthly,
-        mayores_gastos: [...expenses].sort((a, b) => toCents(b.amount) - toCents(a.amount)).slice(0, 10)
-            .map(r => ({ id: r.id, fecha: dateKey(r.date), importe: Number(r.amount), categoria: r.category, subcategoria: r.subcategory, notas: r.notes })),
-    };
-    if (previous) {
-        const prevIncome = previous.incomes.reduce((s, r) => s + toCents(r.amount), 0);
-        const prevExpense = previous.expenses.reduce((s, r) => s + toCents(r.amount), 0);
-        result.periodo_anterior = {
-            desde: previous.from, hasta: previous.to,
-            ingresos: fromCents(prevIncome), gastos: fromCents(prevExpense), ahorro: fromCents(prevIncome - prevExpense),
-            variacion_gastos_pct: prevExpense ? Math.round(((expense - prevExpense) / prevExpense) * 1000) / 10 : null,
-            variacion_ingresos_pct: prevIncome ? Math.round(((income - prevIncome) / prevIncome) * 1000) / 10 : null,
-        };
-    }
-    return result;
+// Resumen de un periodo con el formato del MCP. Las filas deben cubrir el periodo y su tramo de comparación.
+export function personalSummary({ expenses, incomes, budgets, from, to, today }) {
+    return toMcpSummary(computePersonalSummary({ expenses, incomes, budgets, from, to, ...(today ? { today } : {}) }));
 }
 
 function latestPerAccount(records, through) {

@@ -1,7 +1,8 @@
 import * as z from 'zod';
 import prisma from '../../db.js';
 import { parseFinancialRecord } from '../../apiValidation.js';
-import { netWorth, personalSummary, previousRange } from '../analysis.js';
+import { netWorth, toMcpSummary } from '../analysis.js';
+import { loadPersonalSummary } from '../../personalSummaryData.js';
 import { logChange, renameCategory } from '../changeLog.js';
 import { dateKey } from '../serialize.js';
 import {
@@ -27,15 +28,6 @@ function periodFrom({ mes, anio, desde, hasta }) {
     }
     const today = todayMadrid();
     return { from: `${today.slice(0, 7)}-01`, to: today };
-}
-
-async function loadMovements(userId, from, to) {
-    const date = dateFilter(from, to);
-    const [expenses, incomes] = await Promise.all([
-        prisma.expense.findMany({ where: { user_id: userId, date } }),
-        prisma.income.findMany({ where: { user_id: userId, date } }),
-    ]);
-    return { expenses, incomes };
 }
 
 function textFilter(text, fields) {
@@ -89,18 +81,13 @@ export function registerPersonalTools(server, ctx) {
 
     defineTool(server, ctx, 'resumen_personal', {
         title: 'Resumen financiero personal de un periodo',
-        description: 'Ingresos, gastos, ahorro y tasa de ahorro; gasto por categoría frente al presupuesto (desviación en € y %); serie mensual; mayores gastos; y comparación con el periodo anterior de igual duración. Indica mes (AAAA-MM), año o desde/hasta. Por defecto, el mes en curso.',
+        description: 'Ingresos, gastos, ahorro y tasa de ahorro; gasto frente al presupuesto solo en las categorías que lo tienen (desviación en € y %, estado y gasto sin presupuesto aparte); gasto fijo y variable; serie mensual; mayores gastos; y comparación equivalente: un mes frente al anterior, un año frente a las mismas fechas del anterior y, si el periodo está en curso, ambos lados hasta el mismo día. El presupuesto de un año en curso cuenta solo los meses transcurridos. Indica mes (AAAA-MM), año o desde/hasta. Por defecto, el mes en curso.',
         input: { mes: z.string().optional(), anio: z.number().int().min(1900).max(2100).optional(), desde: fecha.optional(), hasta: fecha.optional() },
         annotations: READ,
     }, async (args, c) => {
         requirePersonal(c);
         const { from, to } = periodFrom(args);
-        const prev = previousRange(from, to);
-        const [current, previous, budgets] = await Promise.all([
-            loadMovements(c.userId, from, to), loadMovements(c.userId, prev.from, prev.to),
-            prisma.budget.findMany({ where: { user_id: c.userId } }),
-        ]);
-        return personalSummary({ ...current, budgets, from, to, previous: { ...previous, ...prev } });
+        return toMcpSummary(await loadPersonalSummary(c.userId, { from, to, today: todayMadrid() }));
     });
 
     defineTool(server, ctx, 'ver_patrimonio', {

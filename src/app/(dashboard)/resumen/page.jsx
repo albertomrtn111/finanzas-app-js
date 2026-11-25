@@ -1,18 +1,47 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-    PieChart, Pie, Cell, Legend, ReferenceLine
+    PieChart, Pie, Cell, Legend
 } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import CustomTooltip from '@/components/charts/CustomTooltip';
 import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
-import { parseAppDate } from '@/lib/dateUtils';
-
+import { formatCompactEuro, formatEuro, formatPct, formatSignedEuro, formatSignedPct } from '@/lib/moneyFormat';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const NEUTRAL_BADGE = { background: 'var(--bg-tertiary)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' };
+
+const getProgressColor = (ratio) => {
+    if (ratio > 90) return 'red';
+    if (ratio > 70) return 'yellow';
+    return 'green';
+};
+
+// Variación frente al tramo equivalente. La flecha indica si sube o baja; el color, si es bueno o malo
+// para esa cifra (más ingresos o ahorro es bueno; más gasto es malo).
+function Trend({ value, goodWhenUp, label, format, previousEmpty }) {
+    if (value === null || value === undefined) {
+        if (!previousEmpty) return null;
+        return <div className="kpi-trend"><span className="text-muted text-sm">Sin datos en {label}</span></div>;
+    }
+    if (value === 0) {
+        return <div className="kpi-trend"><span className="text-muted text-sm">= Igual que en {label}</span></div>;
+    }
+    const up = value > 0;
+    const good = up === goodWhenUp;
+    return (
+        <div className="kpi-trend">
+            <span className={`trend ${good ? 'text-success' : 'text-danger'}`} title={good ? 'Mejor que el periodo anterior' : 'Peor que el periodo anterior'}>
+                {up ? '▲' : '▼'} {format(value)} vs {label}
+            </span>
+        </div>
+    );
+}
 
 export default function ResumenPage() {
     const [summary, setSummary] = useState(null);
@@ -24,17 +53,10 @@ export default function ResumenPage() {
     const loadData = useCallback(async (signal) => {
         setLoading(true);
         setError('');
-        setSummary(null);
         try {
-            // Determine params
             const period = selectedMonth === -1 ? 'year' : 'month';
-            const params = new URLSearchParams({
-                year: selectedYear.toString(),
-                period: period
-            });
-            if (period === 'month') {
-                params.append('month', selectedMonth.toString());
-            }
+            const params = new URLSearchParams({ year: selectedYear.toString(), period });
+            if (period === 'month') params.append('month', selectedMonth.toString());
 
             const res = await fetch(`/api/summary?${params.toString()}`, { signal });
             if (!res.ok) throw new Error('No se pudo cargar el resumen');
@@ -53,21 +75,14 @@ export default function ResumenPage() {
         return () => { clearTimeout(timer); controller.abort(); };
     }, [loadData]);
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const goToCurrentMonth = () => {
+        setSelectedYear(currentYear);
+        setSelectedMonth(currentMonth);
     };
-
-    const periodLabel = selectedMonth === -1
-        ? `(${selectedYear})`
-        : `(${['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][selectedMonth]} ${selectedYear})`;
-
-    const trendLabel = selectedMonth === -1 ? 'vs año anterior' : 'vs mes anterior';
-
-    // Month names for select
-    const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
-    const currentYear = new Date().getFullYear();
-    const allYears = Array.from({ length: currentYear - 1900 + 2 }, (_, i) => currentYear + 1 - i);
 
     if (loading && !summary) {
         return (
@@ -83,110 +98,74 @@ export default function ResumenPage() {
         </div></div>;
     }
 
-    // Default empty structure if load failed
-    const data = summary || {
-        kpi: { income: 0, expenses: 0, savings: 0, savingsRate: 0, trends: { income: 0, expenses: 0, savings: 0 } },
-        budget: { total: 0, usage: 0, ratio: 0 },
-        charts: { monthly: [], categories: [], types: [] },
-        meta: { period: 'year' }
-    };
+    const data = summary;
+    const { kpi, budget, comparison, status, meta } = data;
+    const isYearView = meta.period === 'year';
+    const periodLabel = isYearView ? `(${meta.year})` : `(${MONTH_NAMES[meta.month]} ${meta.year})`;
+    const comparisonLabel = comparison.previousLabel;
+    const previousEmpty = comparison.previous.income === 0 && comparison.previous.expenses === 0;
 
-    // Helper colors
-    const getProgressColor = (ratio) => {
-        if (ratio > 90) return 'red';
-        if (ratio > 70) return 'yellow';
-        return 'green';
-    };
+    // Años con datos: del primer registro al año actual (o al último registro, si hay fechas futuras).
+    const firstYear = Math.min(meta.firstYear ?? currentYear, currentYear, selectedYear);
+    const lastYear = Math.max(meta.lastYear ?? currentYear, currentYear, selectedYear);
+    const years = Array.from({ length: lastYear - firstYear + 1 }, (_, i) => lastYear - i);
 
-    const getFinancialStatus = () => {
-        const { ratio, total } = data.budget;
-        const { savings, savingsRate } = data.kpi;
-        const isYearView = data.meta.period === 'year';
+    const isCurrentMonthView = !isYearView && selectedYear === currentYear && selectedMonth === currentMonth;
 
-        if (ratio > 100 || savings < 0) {
-            return { status: 'danger', label: 'Excedido', desc: 'Gastos por encima del presupuesto' };
-        }
-        if (ratio > (isYearView ? 90 : 70) || (savingsRate > 0 && savingsRate < 10)) {
-            return { status: 'warning', label: 'Riesgo', desc: 'Acercándote al límite' };
-        }
-        return { status: 'success', label: 'Bajo control', desc: 'Finanzas saludables' };
-    };
+    // Proyección del mes en curso, solo sobre las categorías con presupuesto.
+    const [todayYear, todayMonth, todayDay] = meta.today.split('-').map(Number);
+    const isRunningMonth = !isYearView && meta.partial && meta.year === todayYear && meta.month === todayMonth - 1;
+    const daysInMonth = new Date(Date.UTC(meta.year, meta.month + 1, 0)).getUTCDate();
+    const projectedBudgeted = isRunningMonth && todayDay > 0 ? (budget.usage / todayDay) * daysInMonth : budget.usage;
 
-    const financialStatus = getFinancialStatus();
+    const smartAlerts = [];
+    if (budget.overCategories.length > 0) {
+        smartAlerts.push({
+            type: 'danger', icon: '🚨',
+            title: budget.overCategories.length === 1 ? 'Una categoría supera su presupuesto' : `${budget.overCategories.length} categorías superan su presupuesto`,
+            desc: budget.overCategories.join(', '),
+        });
+    }
+    if (budget.total > 0 && budget.ratio >= 70 && budget.ratio <= 100) {
+        smartAlerts.push({
+            type: 'warning', icon: '📊', title: 'Presupuesto en riesgo',
+            desc: `Has consumido el ${formatPct(budget.ratio, 0)} de lo presupuestado`,
+        });
+    }
+    if (kpi.savingsRate !== null && kpi.savingsRate > 20) {
+        smartAlerts.push({
+            type: 'success', icon: '🎯', title: 'Excelente tasa de ahorro',
+            desc: `Estás ahorrando el ${formatPct(kpi.savingsRate, 0)} de tus ingresos`,
+        });
+    }
+    if (kpi.savings > 0 && budget.total > 0 && kpi.savings * 0.7 > 100) {
+        smartAlerts.push({
+            type: 'success', icon: '💡', title: 'Capacidad de inversión',
+            desc: `Resultados positivos: podrías invertir ${formatEuro(kpi.savings * 0.7)}`,
+        });
+    }
 
-    // Projected expenses logic (client side estimation based on current date)
-    const isCurrentPeriod = data.meta.period === 'month'
-        && selectedYear === new Date().getFullYear()
-        && selectedMonth === new Date().getMonth();
-
-    const dayOfMonth = new Date().getDate();
-    const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
-    const projectedExpenses = (isCurrentPeriod && dayOfMonth > 0)
-        ? (data.kpi.expenses / dayOfMonth) * daysInMonth
-        : data.kpi.expenses;
-
-    // Smart Alerts
-    const generateSmartAlerts = () => {
-        const alerts = [];
-        const { ratio } = data.budget;
-        const { savingsRate, savings } = data.kpi;
-
-        if (ratio > 70 && ratio < 100) {
-            alerts.push({
-                type: 'warning',
-                icon: '📊',
-                title: 'Presupuesto en riesgo',
-                desc: `Has consumido el ${ratio.toFixed(0)}% del presupuesto`
-            });
-        }
-        if (savingsRate > 20) {
-            alerts.push({
-                type: 'success',
-                icon: '🎯',
-                title: 'Excelente tasa de ahorro',
-                desc: `Estás ahorrando el ${savingsRate.toFixed(0)}% de tus ingresos`
-            });
-        }
-        if (savings > 0 && data.budget.total > 0) {
-            const safeToInvest = savings * 0.7;
-            if (safeToInvest > 100) {
-                alerts.push({
-                    type: 'success',
-                    icon: '💡',
-                    title: 'Capacidad de inversión',
-                    desc: `Resultados positivos: Podrías invertir ${formatCurrency(safeToInvest)}`
-                });
-            }
-        }
-        return alerts.slice(0, 4);
-    };
-    const smartAlerts = generateSmartAlerts();
-
-    // Chart Data Preparation
     const monthlyData = data.charts.monthly.filter(d => d.income > 0 || d.expenses > 0);
     const categoryData = data.charts.categories;
     const typeData = data.charts.types;
 
     return (
         <div className="page-container">
-            {/* Status Header */}
             <div className="responsive-header">
                 <div>
                     <div className="status-header-title">Estado financiero {periodLabel}</div>
-                    <div className="status-header-subtitle">{financialStatus.desc}</div>
+                    <div className="status-header-subtitle">{status.desc}</div>
                 </div>
                 <div className="header-controls">
-                    <div className={`status-badge ${financialStatus.status}`}>
-                        <span className="status-badge-icon"></span>
-                        {financialStatus.label}
+                    <div className={`status-badge ${status.level === 'neutral' ? '' : status.level}`} style={status.level === 'neutral' ? NEUTRAL_BADGE : undefined}>
+                        <span className="status-badge-icon" style={status.level === 'neutral' ? { background: 'var(--text-muted)' } : undefined}></span>
+                        {status.label}
                     </div>
 
                     <div className="segmented-control">
                         <button
-                            onClick={() => {
-                                if (selectedMonth === -1) setSelectedMonth(new Date().getMonth());
-                            }}
-                            className={`segmented-btn ${selectedMonth !== -1 ? 'active' : ''}`}
+                            onClick={goToCurrentMonth}
+                            className={`segmented-btn ${isCurrentMonthView ? 'active' : ''}`}
                         >
                             Este mes
                         </button>
@@ -201,11 +180,12 @@ export default function ResumenPage() {
 
                     <select
                         className="form-input form-select"
+                        aria-label="Año"
                         value={selectedYear}
                         onChange={(e) => setSelectedYear(Number(e.target.value))}
                         style={{ minWidth: '100px' }}
                     >
-                        {allYears.map((y) => (
+                        {years.map((y) => (
                             <option key={y} value={y}>{y}</option>
                         ))}
                     </select>
@@ -213,11 +193,12 @@ export default function ResumenPage() {
                     {selectedMonth !== -1 && (
                         <select
                             className="form-input form-select"
+                            aria-label="Mes"
                             value={selectedMonth}
                             onChange={(e) => setSelectedMonth(Number(e.target.value))}
                             style={{ minWidth: '120px' }}
                         >
-                            {monthNames.map((name, idx) => (
+                            {MONTH_NAMES.map((name, idx) => (
                                 <option key={idx} value={idx}>{name}</option>
                             ))}
                         </select>
@@ -225,113 +206,145 @@ export default function ResumenPage() {
                 </div>
             </div>
 
-            {/* KPIs */}
+            {!meta.hasData && (
+                <div className="card mb-lg">
+                    <div className="card-body">
+                        <p className="text-muted" style={{ margin: 0 }}>
+                            No hay ingresos ni gastos en {isYearView ? meta.year : `${MONTH_NAMES[meta.month].toLowerCase()} de ${meta.year}`}.{' '}
+                            <Link href="/registro">Registrar movimientos</Link>
+                        </p>
+                    </div>
+                </div>
+            )}
+
             <div className="kpi-grid">
                 <div className="kpi-card-enhanced">
                     <div className="kpi-label">Ingresos</div>
                     <div className="kpi-main">
-                        <div className="kpi-value text-success">{formatCurrency(data.kpi.income)}</div>
+                        <div className="kpi-value text-success">{formatEuro(kpi.income)}</div>
                     </div>
-                    {data.kpi.trends.income !== 0 && (
-                        <div className="kpi-trend">
-                            <span className={`trend ${data.kpi.trends.income >= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(data.kpi.trends.income).toFixed(0)}% {trendLabel}
-                            </span>
-                        </div>
-                    )}
+                    <Trend value={comparison.change.incomePct} goodWhenUp label={comparisonLabel} format={formatSignedPct} previousEmpty={previousEmpty && meta.hasData} />
                 </div>
 
                 <div className="kpi-card-enhanced">
                     <div className="kpi-label">Gastos</div>
                     <div className="kpi-main">
-                        <div className="kpi-value text-danger">{formatCurrency(data.kpi.expenses)}</div>
+                        <div className="kpi-value text-danger">{formatEuro(kpi.expenses)}</div>
                     </div>
-                    {data.kpi.trends.expenses !== 0 && (
-                        <div className="kpi-trend">
-                            <span className={`trend ${data.kpi.trends.expenses <= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(data.kpi.trends.expenses).toFixed(0)}% {trendLabel}
-                            </span>
-                        </div>
-                    )}
+                    <Trend value={comparison.change.expensesPct} goodWhenUp={false} label={comparisonLabel} format={formatSignedPct} previousEmpty={previousEmpty && meta.hasData} />
                 </div>
 
                 <div className="kpi-card-enhanced">
                     <div className="kpi-label">Ahorro</div>
                     <div className="kpi-main">
-                        <div className={`kpi-value ${data.kpi.savings >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                            {formatCurrency(data.kpi.savings)}
+                        <div className={`kpi-value ${kpi.savings >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
+                            {formatEuro(kpi.savings)}
                         </div>
                     </div>
-                    {data.kpi.trends.savings !== 0 && (
-                        <div className="kpi-trend">
-                            <span className={`trend ${data.kpi.trends.savings >= 0 ? 'trend-up' : 'trend-down'}`}>
-                                {Math.abs(data.kpi.trends.savings).toFixed(0)}% {trendLabel}
-                            </span>
-                        </div>
-                    )}
+                    <Trend
+                        value={previousEmpty ? null : comparison.change.savings}
+                        goodWhenUp
+                        label={comparisonLabel}
+                        format={formatSignedEuro}
+                        previousEmpty={previousEmpty && meta.hasData}
+                    />
                 </div>
 
                 <div className="kpi-card-enhanced">
                     <div className="kpi-label">Tasa de ahorro</div>
                     <div className="kpi-main">
-                        <div className={`kpi-value ${data.kpi.savingsRate >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                            {data.kpi.savingsRate.toFixed(1)}%
+                        <div className={`kpi-value ${kpi.savingsRate === null ? '' : kpi.savingsRate >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
+                            {kpi.savingsRate === null ? '—' : formatPct(kpi.savingsRate)}
                         </div>
                     </div>
                     <div className="kpi-trend">
                         <span className="text-muted text-sm">
-                            Target: 20%
+                            {kpi.savingsRate === null ? 'Sin ingresos en el periodo' : `Objetivo: ${formatPct(20)}`}
                         </span>
                     </div>
                 </div>
             </div>
 
-            {/* Budget */}
-            {data.budget.total > 0 && (
+            {meta.hasData && (
+                <p className="text-muted text-sm" style={{ margin: '0 0 var(--spacing-lg)' }}>
+                    {comparison.description}
+                </p>
+            )}
+
+            {budget.total > 0 && (
                 <div className="card mb-lg">
                     <div className="card-body">
-                        <h3 className="section-title">Presupuesto {data.meta.period === 'year' ? 'anual' : 'mensual'}</h3>
+                        <h3 className="section-title">
+                            Presupuesto {isYearView ? 'anual' : 'mensual'}
+                            {isYearView && budget.months < 12 && (
+                                <span className="text-muted text-sm" style={{ fontWeight: 400 }}> · {budget.months} {budget.months === 1 ? 'mes transcurrido' : 'meses transcurridos'}</span>
+                            )}
+                        </h3>
                         <div className="grid grid-3 gap-md mb-md">
                             <div>
-                                <div className="text-muted text-sm">Presupuesto</div>
-                                <div className="font-semibold">{formatCurrency(data.budget.total)}</div>
+                                <div className="text-muted text-sm">Presupuestado</div>
+                                <div className="font-semibold">{formatEuro(budget.total)}</div>
                             </div>
                             <div>
-                                <div className="text-muted text-sm">Gastado</div>
-                                <div className="font-semibold">{formatCurrency(data.budget.usage)}</div>
+                                <div className="text-muted text-sm">Gastado en categorías con presupuesto</div>
+                                <div className="font-semibold">{formatEuro(budget.usage)}</div>
                             </div>
                             <div>
                                 <div className="text-muted text-sm">Disponible</div>
-                                <div className={`font-semibold ${data.budget.total - data.budget.usage >= 0 ? 'text-success' : 'text-danger'}`}>
-                                    {formatCurrency(data.budget.total - data.budget.usage)}
+                                <div className={`font-semibold ${budget.remaining >= 0 ? 'text-success' : 'text-danger'}`}>
+                                    {formatEuro(budget.remaining)}
                                 </div>
                             </div>
                         </div>
                         <div className="progress-zoned">
                             <div
-                                className={`progress-zoned-bar ${getProgressColor(data.budget.ratio)}`}
-                                style={{ width: `${Math.min(data.budget.ratio, 100)}%` }}
+                                className={`progress-zoned-bar ${getProgressColor(budget.ratio)}`}
+                                style={{ width: `${Math.min(budget.ratio, 100)}%` }}
                             />
                         </div>
-                        {isCurrentPeriod && (
+                        {budget.unbudgeted !== 0 && (
+                            <div className="text-muted text-sm" style={{ marginTop: 'var(--spacing-sm)' }}>
+                                Gasto sin presupuesto: {formatEuro(budget.unbudgeted)}
+                                {budget.unbudgetedCategories.length > 0 && ` (${budget.unbudgetedCategories.join(', ')})`}. No cuenta como exceso.
+                            </div>
+                        )}
+                        {isRunningMonth && (
                             <div className="projection-text">
-                                📈 Si mantienes este ritmo, cerrarás el mes con un gasto de {formatCurrency(projectedExpenses)}
-                                {projectedExpenses > data.budget.total && (
+                                📈 Si mantienes este ritmo, el gasto en categorías con presupuesto cerrará el mes en {formatEuro(projectedBudgeted)}
+                                {projectedBudgeted > budget.total && (
                                     <span className="text-danger"> (superarás el presupuesto)</span>
                                 )}
                             </div>
                         )}
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-sm)', marginTop: 'var(--spacing-md)' }}>
+                            {budget.categories.map((cat) => (
+                                <div key={cat.category}>
+                                    <div className="flex-between text-sm">
+                                        <span>{cat.category}</span>
+                                        <span className={cat.over ? 'text-danger' : 'text-muted'}>
+                                            {formatEuro(cat.spent)} de {formatEuro(cat.budget)} ({formatPct(cat.ratio ?? 0)})
+                                        </span>
+                                    </div>
+                                    <div className="progress-zoned" style={{ height: '6px', marginTop: '4px' }}>
+                                        <div
+                                            className={`progress-zoned-bar ${getProgressColor(cat.ratio ?? 0)}`}
+                                            style={{ width: `${Math.min(cat.ratio ?? 0, 100)}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             )}
 
-            {/* Smart Alerts */}
             {smartAlerts.length > 0 && (
                 <div className="card mb-lg">
                     <div className="card-body">
                         <h3 className="section-title">💡 Alertas inteligentes</h3>
                         <div className="smart-alerts">
-                            {smartAlerts.map((alert, idx) => (
+                            {smartAlerts.slice(0, 4).map((alert, idx) => (
                                 <div key={idx} className={`smart-alert ${alert.type}`}>
                                     <span className="smart-alert-icon">{alert.icon}</span>
                                     <div className="smart-alert-content">
@@ -345,14 +358,11 @@ export default function ResumenPage() {
                 </div>
             )}
 
-
-            {/* Charts */}
             {monthlyData.length > 0 && (
                 <ChartContainer
-                    title="Evolución mensual del ahorro"
+                    title={`Evolución mensual del ahorro (${meta.year})`}
                     heightMobile={280}
                     heightDesktop={260}
-                    // Refresh if data changes drastically
                     refreshKey={`${monthlyData.length}-${selectedYear}`}
                     render={({ width, height, isMobile }) => (
                         <BarChart
@@ -372,12 +382,13 @@ export default function ResumenPage() {
                             <YAxis
                                 stroke="var(--text-tertiary)"
                                 tick={{ fontSize: 10 }}
-                                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-                                width={isMobile ? 35 : 45}
+                                tickFormatter={formatCompactEuro}
+                                width={isMobile ? 52 : 64}
                             />
-                            <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
+                            <Tooltip content={<CustomTooltip formatter={formatEuro} />} />
                             <Bar
                                 dataKey="savings"
+                                name="Ahorro"
                                 radius={[4, 4, 0, 0]}
                                 maxBarSize={isMobile ? 40 : 60}
                             >
@@ -396,7 +407,7 @@ export default function ResumenPage() {
             <div className="grid grid-2 gap-lg">
                 {categoryData.length > 0 && (
                     <ChartContainer
-                        title={`Gastos por categoría`}
+                        title="Gastos por categoría"
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
@@ -436,7 +447,7 @@ export default function ResumenPage() {
 
                 {typeData.length > 0 && (
                     <ChartContainer
-                        title={`Gasto fijo vs variable`}
+                        title="Gasto fijo vs variable"
                         heightMobile={300}
                         heightDesktop={280}
                         className="chart-pie"
@@ -457,8 +468,9 @@ export default function ResumenPage() {
                                         labelLine={false}
                                         label={renderPieLabel}
                                     >
-                                        <Cell fill="#3B82F6" />
-                                        <Cell fill="#10B981" />
+                                        {typeData.map((_, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
                                     </Pie>
                                     <Tooltip content={<PieTooltip />} />
                                     <Legend
