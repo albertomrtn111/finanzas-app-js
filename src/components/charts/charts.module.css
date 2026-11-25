@@ -1,0 +1,168 @@
+/* Gráficos (Tarea NF-20). Usa los tokens de :root (globals.css) y respeta el modo oscuro.
+ *
+ * Paleta de categorías: seis tonos neutros (azul, naranja, cian, amarillo, violeta, magenta), sin rojo
+ * ni verde, que se reservan para «bueno/malo» (var(--success) / var(--danger)). El orden está validado
+ * para daltonismo (protanopia y deuteranopia, incluido el par último↔primero de un donut) en claro
+ * sobre #FFFFFF y en oscuro sobre #111827. Más de seis categorías se agrupan en «Otras» (gris).
+ */
+.frame {
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #0e8fb0;
+  --chart-4: #eda100;
+  --chart-5: #6250d6;
+  --chart-6: #e87ba4;
+  --chart-other: #8a8f98;
+  --chart-reference: #6b7280;
+  --chart-tick: var(--text-tertiary);
+}
+
+@media (prefers-color-scheme: dark) {
+  .frame {
+    --chart-1: #3987e5;
+    --chart-2: #d95926;
+    --chart-3: #1a9cc0;
+    --chart-4: #c98500;
+    --chart-5: #9085e9;
+    --chart-6: #d55181;
+    --chart-other: #8b93a1;
+    --chart-reference: #9ca3af;
+    --chart-tick: var(--text-secondary);
+  }
+}
+
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem 1rem; flex-wrap: wrap; margin-bottom: var(--spacing-md); }
+.head :global(.chart-title) { margin: 0; }
+.subtitle { margin: 0; font-size: 0.8125rem; color: var(--text-tertiary); }
+
+/* Caja de tamaño fijo: el gráfico nunca cambia la altura de la página ni se vuelve a montar al desplazarse. */
+.box {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: var(--chart-h-desktop, 320px);
+}
+@media (max-width: 767px) {
+  .box { height: var(--chart-h-mobile, 260px); }
+}
+
+.fill { position: absolute; inset: 0; }
+
+/* Textos de ejes y leyendas de Recharts: mínimo 12 px también en móvil (globals.css los baja a 10-11 px). */
+.frame :global(.recharts-cartesian-axis-tick-value) { font-size: 12px !important; fill: var(--chart-tick); }
+.frame :global(.recharts-legend-item-text) { font-size: 12px !important; }
+.frame :global(.recharts-surface) { overflow: visible; }
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--border-radius-sm);
+  background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 50%, var(--bg-secondary) 100%);
+  background-size: 200% 100%;
+  animation: chart-shimmer 1.4s ease-in-out infinite;
+  opacity: 0.7;
+}
+@keyframes chart-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .placeholder { animation: none; } }
+
+/* Total en el centro de un donut (lo pinta el servidor). Va antes del gráfico: el hueco del donut es
+   transparente y deja verlo, y el tooltip del gráfico queda por encima. */
+.center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  text-align: center;
+}
+.centerLabel { font-size: 0.75rem; color: var(--text-tertiary); }
+.centerValue { font-size: 0.95rem; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+/* Leyenda en HTML: siempre visible, también en móvil, a 13 px. */
+.legend {
+  list-style: none;
+  margin: var(--spacing-md) 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem 1.25rem;
+  grid-template-columns: minmax(0, 1fr);
+  font-size: 0.8125rem;
+}
+.legendInline { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+@media (min-width: 640px) {
+  .legendColumns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.legendItem { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.swatchLine { width: 16px; height: 0; border-top: 3px solid; border-radius: 2px; flex-shrink: 0; }
+.swatchDashed { width: 16px; height: 0; border-top: 3px dashed; flex-shrink: 0; }
+.legendName { color: var(--text-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legendValue { margin-left: auto; color: var(--text-primary); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.legendPct { color: var(--text-tertiary); font-weight: 500; margin-left: 0.35rem; }
+
+/* Barras horizontales en HTML (ranking de cuentas o productos). */
+.barList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+.barHead { display: flex; align-items: baseline; gap: 0.75rem; font-size: 0.875rem; margin-bottom: 0.3rem; }
+.barLabel { color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barMeta { color: var(--text-tertiary); font-size: 0.8125rem; white-space: nowrap; }
+.barValue { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--text-primary); }
+.barTrack { height: 10px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
+.barFill { height: 100%; border-radius: 999px; min-width: 2px; }
+.barNote { margin: 0.75rem 0 0; font-size: 0.8125rem; color: var(--text-tertiary); }
+
+.empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-tertiary); font-size: 0.875rem; text-align: center; padding: 0 1rem; }
+
+/* Tooltip legible en claro y en oscuro. */
+.tooltip {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  min-width: 160px;
+  max-width: 260px;
+}
+@media (prefers-color-scheme: dark) {
+  .tooltip { background: var(--bg-tertiary); border-color: #4B5563; box-shadow: 0 10px 20px rgba(0, 0, 0, 0.45); }
+}
+.tooltipTitle { font-weight: 600; margin: 0 0 0.35rem; color: var(--text-primary); }
+.tooltipRow { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.2rem; }
+.tooltipName { color: var(--text-secondary); }
+.tooltipValue { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tooltipTotal { border-top: 1px solid var(--border-color); margin-top: 0.4rem; padding-top: 0.4rem; }
+
+/* Pestañas de periodo (enlaces: funcionan sin JavaScript y se pueden compartir). */
+.tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: var(--border-radius); border: 1px solid var(--border-color); background: var(--bg-secondary); }
+.tab {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+  min-height: 36px; padding: 0 0.85rem; border-radius: var(--border-radius-sm);
+  font-size: 0.875rem; font-weight: 500; color: var(--text-secondary); text-decoration: none; white-space: nowrap;
+}
+.tab:hover { color: var(--text-primary); }
+.tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.tabActive { background: var(--bg-primary); color: var(--text-primary); font-weight: 600; box-shadow: var(--shadow-sm); }
+.periodLink { position: relative; }
+.pending {
+  position: absolute; top: calc(50% - 5px); right: 5px;
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid var(--border-color); border-top-color: var(--primary);
+  opacity: 0; transition: opacity var(--transition-fast);
+}
+.pendingOn { opacity: 1; animation: chart-spin 0.8s linear infinite; }
+@keyframes chart-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pendingOn { animation-duration: 2.4s; } }
+
+/* Rejilla de gráficos de las páginas de resumen: una columna en móvil, dos en escritorio. */
+.grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); margin-bottom: var(--spacing-lg); }
+@media (min-width: 900px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.grid > * { margin-bottom: 0; }
+.note { margin: 0 0 var(--spacing-lg); font-size: 0.875rem; color: var(--text-tertiary); }
+.kpiSub { margin-top: var(--spacing-xs); font-size: 0.875rem; color: var(--text-tertiary); }
+.good { color: var(--success-text); font-weight: 500; }
+.bad { color: var(--danger-text); font-weight: 500; }

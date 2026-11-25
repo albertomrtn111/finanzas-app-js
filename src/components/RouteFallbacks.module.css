@@ -1,0 +1,26 @@
+/* Carga y error de página (Tarea NF-20). Ligero: sin gráficos ni librerías. */
+.page { padding-bottom: var(--spacing-xl); }
+.block {
+  border-radius: var(--border-radius);
+  background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 50%, var(--bg-secondary) 100%);
+  background-size: 200% 100%;
+  animation: route-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes route-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .block { animation: none; } }
+
+.title { height: 28px; width: min(320px, 70%); margin-bottom: 0.6rem; }
+.subtitle { height: 16px; width: min(220px, 50%); margin-bottom: var(--spacing-xl); }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-lg); margin-bottom: var(--spacing-xl); }
+.kpi { height: 110px; }
+.charts { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--spacing-lg); }
+@media (min-width: 900px) { .charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.chart { height: 280px; }
+@media (max-width: 767px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-md); }
+  .kpi { height: 88px; }
+  .chart { height: 240px; }
+}
+
+.error { max-width: 560px; margin: 2rem auto; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: var(--border-radius); }
+.reference { font-size: 0.75rem; color: var(--text-muted); margin: 0 0 1.25rem; text-align: center; }
