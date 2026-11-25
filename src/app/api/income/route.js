@@ -4,8 +4,11 @@ import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
 import { parseFinancialRecord, parseId, parsePagination } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
+import { movementWhere, parseMovementFilters, totalsHeaders } from '@/lib/movementFilters';
 
-// GET - Listar todos los ingresos del usuario
+// GET - Listar los ingresos del usuario. Filtros opcionales: q, category, from, to, min y max
+// (src/lib/movementFilters.js). Devuelve la lista y, en X-Total-Count y X-Total-Amount, cuántos
+// ingresos cumplen el filtro y cuánto suman en total.
 export async function GET(request) {
     try {
         const session = await getServerSession(authOptions);
@@ -19,14 +22,16 @@ export async function GET(request) {
         // Pagination params
         const { value: pagination, error: paginationError } = parsePagination(searchParams);
         if (paginationError) return badRequest(paginationError);
+        const { value: filters, error: filterError } = parseMovementFilters(searchParams);
+        if (filterError) return badRequest(filterError);
 
-        const incomes = await prisma.income.findMany({
-            where: { user_id: userId },
-            orderBy: [{ date: 'desc' }, { id: 'desc' }],
-            ...pagination,
-        });
+        const where = movementWhere('income', userId, filters);
+        const [incomes, totals] = await Promise.all([
+            prisma.income.findMany({ where, orderBy: [{ date: 'desc' }, { id: 'desc' }], ...pagination }),
+            prisma.income.aggregate({ where, _count: { _all: true }, _sum: { amount: true } }),
+        ]);
 
-        return NextResponse.json(incomes);
+        return NextResponse.json(incomes, { headers: totalsHeaders(totals) });
     } catch (error) {
         console.error('Error obteniendo ingresos:', error);
         return NextResponse.json({ error: 'Error del servidor' }, { status: 500 });
