@@ -1,0 +1,123 @@
+/* Gastos e ingresos: botón «+», formulario único y lista por días (Tareas NF-17 y NF-19).
+   Usa los tokens de :root (globals.css), así que respeta el modo oscuro. */
+
+/* ---------- Botón flotante «+» ---------- */
+.fab {
+  position: fixed;
+  z-index: 90; /* por debajo de la barra superior móvil, del menú y de las ventanas */
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: #FFFFFF;
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+  cursor: pointer;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+.fab:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(37, 99, 235, 0.5); }
+.fab:focus-visible { outline: none; box-shadow: var(--focus-ring), 0 6px 20px rgba(37, 99, 235, 0.45); }
+
+/* Con avisos abajo, el botón sube por encima de ellos (como en Material), para poder apuntar otro
+   sin esperar a que se cierren. Los avisos viven en el contenedor aria-live del kit. */
+:global(body:has([aria-live="polite"] > [class*="toast"]:nth-child(1))) .fab { transform: translateY(-88px); }
+:global(body:has([aria-live="polite"] > [class*="toast"]:nth-child(2))) .fab { transform: translateY(-168px); }
+:global(body:has([aria-live="polite"] > [class*="toast"]:nth-child(3))) .fab { transform: translateY(-248px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fab { transition: none; }
+}
+
+.fabSpacer { height: 80px; }
+
+/* En el móvil la ventana se abre arriba: queda sitio para el teclado. */
+@media (max-width: 768px) {
+  .dialog { margin-top: max(12px, env(safe-area-inset-top, 0px)); }
+}
+
+/* ---------- Formulario ---------- */
+.form { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.form :global(.form-group) { margin-bottom: 0.75rem; }
+
+.form .amountInput {
+  font-size: 1.75rem;
+  font-weight: 600;
+  padding: 10px 14px;
+  min-height: 56px;
+}
+
+.kindToggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 0.75rem;
+  border-radius: var(--border-radius-sm);
+  background: var(--bg-tertiary);
+}
+.kindOption {
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kindOption:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.kindOptionActive { background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+
+.pairRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+}
+/* Dos columnas también en un móvil de 375 px (la ventana deja unos 300 px de ancho). */
+.pairRow > * { flex: 1 1 135px; min-width: 0; }
+
+.more { margin: 0.25rem 0 0.75rem; }
+.more > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  width: fit-content;
+  cursor: pointer;
+  color: var(--primary-dark);
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: var(--border-radius-sm);
+}
+.more > summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.moreBody { padding-top: 0.5rem; }
+.notes { min-height: 72px; }
+
+.inlineError {
+  color: var(--danger-text);
+  font-size: 0.875rem;
+  margin: 0 0 0.75rem;
+}
+.linkButton {
+  border: 0;
+  background: transparent;
+  padding: 0.25rem;
+  min-height: 44px;
+  color: var(--primary-dark);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.formActions .deleteAction { margin-right: auto; color: var(--danger-text); }

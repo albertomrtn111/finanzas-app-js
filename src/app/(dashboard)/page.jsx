@@ -6,9 +6,11 @@ import { PieChart, Pie, Cell, Tooltip } from 'recharts';
 import ChartContainer from '@/components/ChartContainer';
 import PieTooltip from '@/components/charts/PieTooltip';
 import { renderPieLabel } from '@/lib/chartUtils';
+import { useMovementDialog } from '@/components/movements/MovementsProvider';
+import { useMovementsChanged } from '@/components/movements/useMovementActions';
 
 
-import { parseAppDate, localDateKey } from '@/lib/dateUtils';
+import { parseAppDate } from '@/lib/dateUtils';
 import { latestByAccount, totalLatestValue } from '@/lib/financialSnapshots';
 
 
@@ -20,36 +22,12 @@ export default function HomePage() {
     const [investments, setInvestments] = useState([]);
     const [cashSnapshots, setCashSnapshots] = useState([]);
     const [budgets, setBudgets] = useState([]);
-    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [period, setPeriod] = useState('month');
-    const [showIncomeModal, setShowIncomeModal] = useState(false);
-    const [showExpenseModal, setShowExpenseModal] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [incomeError, setIncomeError] = useState('');
-    const [expenseError, setExpenseError] = useState('');
     const [userName, setUserName] = useState(''); // Initialize empty
-
-    // Form states for quick entry
-    const [incomeForm, setIncomeForm] = useState({
-        date: localDateKey(),
-        amount: '',
-        category: '',
-        source: '',
-        notes: ''
-    });
-
-    const [expenseForm, setExpenseForm] = useState({
-        date: localDateKey(),
-        amount: '',
-        category: '',
-        payment_method: 'Tarjeta',
-        expense_type: 'Variable',
-        notes: ''
-    });
-
-
+    // Apuntar gasto o ingreso: el mismo formulario que el botón «+» y Registro.
+    const { openMovement } = useMovementDialog();
 
     // Totales del periodo, últimos movimientos y último registro, calculados en el servidor.
     // Es lo único que se vuelve a pedir al cambiar de periodo o al guardar un movimiento.
@@ -69,14 +47,13 @@ export default function HomePage() {
         setLoading(true);
         setLoadError('');
         try {
-            const [invRes, cashRes, budRes, catRes, sessionRes] = await Promise.all([
+            const [invRes, cashRes, budRes, sessionRes] = await Promise.all([
                 fetch('/api/investments'),
                 fetch('/api/cash'),
                 fetch('/api/budgets'),
-                fetch('/api/categories?type=expense'),
                 fetch('/api/auth/session'),
             ]);
-            if ([invRes, cashRes, budRes, catRes, sessionRes].some(response => !response.ok)) {
+            if ([invRes, cashRes, budRes, sessionRes].some(response => !response.ok)) {
                 throw new Error('No se pudieron cargar todos los datos del panel');
             }
 
@@ -91,10 +68,6 @@ export default function HomePage() {
             if (budRes.ok) {
                 const data = await budRes.json();
                 setBudgets(Array.isArray(data) ? data : []);
-            }
-            if (catRes.ok) {
-                const data = await catRes.json();
-                setCategories(Array.isArray(data) ? data : []);
             }
             if (sessionRes.ok) {
                 const session = await sessionRes.json();
@@ -119,6 +92,10 @@ export default function HomePage() {
         const timer = setTimeout(() => { void loadHome(controller.signal); }, 0);
         return () => { clearTimeout(timer); controller.abort(); };
     }, [loadHome]);
+
+    // Tras apuntar, editar, borrar o deshacer un movimiento (desde aquí o desde el botón «+»),
+    // se recargan los totales y los últimos movimientos sin cubrir la pantalla.
+    useMovementsChanged(() => { void loadHome(); });
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -200,66 +177,6 @@ export default function HomePage() {
         return { current, target, percentage };
     }, [budgets, currentCash]);
 
-    // Handle income submission
-    const handleIncomeSubmit = async (e) => {
-        e.preventDefault();
-        setIncomeError('');
-        if (!incomeForm.amount || Number(incomeForm.amount) <= 0 || !incomeForm.category.trim()) {
-            setIncomeError('Indica un importe mayor que cero y una categoría');
-            return;
-        }
-
-        setSaving(true);
-        try {
-            const res = await fetch('/api/income', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(incomeForm)
-            });
-            if (res.ok) {
-                setShowIncomeModal(false);
-                setIncomeForm({ ...incomeForm, amount: '', notes: '' });
-                void loadHome();
-            } else {
-                const result = await res.json().catch(() => ({}));
-                setIncomeError(result.error || 'No se pudo guardar el ingreso');
-            }
-        } catch (error) {
-            setIncomeError('Error de conexión al guardar el ingreso');
-        }
-        setSaving(false);
-    };
-
-    // Handle expense submission
-    const handleExpenseSubmit = async (e) => {
-        e.preventDefault();
-        setExpenseError('');
-        if (!expenseForm.amount || Number(expenseForm.amount) <= 0 || !expenseForm.category) {
-            setExpenseError('Indica un importe mayor que cero y una categoría');
-            return;
-        }
-
-        setSaving(true);
-        try {
-            const res = await fetch('/api/expenses', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(expenseForm)
-            });
-            if (res.ok) {
-                setShowExpenseModal(false);
-                setExpenseForm({ ...expenseForm, amount: '', notes: '' });
-                void loadHome();
-            } else {
-                const result = await res.json().catch(() => ({}));
-                setExpenseError(result.error || 'No se pudo guardar el gasto');
-            }
-        } catch (error) {
-            setExpenseError('Error de conexión al guardar el gasto');
-        }
-        setSaving(false);
-    };
-
     if (loading || (!home && !homeError)) {
         return (
             <div className="dashboard-home">
@@ -319,13 +236,13 @@ export default function HomePage() {
                         <div className="quick-actions">
                             <button
                                 className="quick-action-btn income"
-                                onClick={() => setShowIncomeModal(true)}
+                                onClick={() => openMovement({ kind: 'income' })}
                             >
                                 <span>+</span> Ingreso
                             </button>
                             <button
                                 className="quick-action-btn expense"
-                                onClick={() => setShowExpenseModal(true)}
+                                onClick={() => openMovement({ kind: 'expense' })}
                             >
                                 <span>−</span> Gasto
                             </button>
@@ -489,161 +406,6 @@ export default function HomePage() {
                     </div>
                 </div>
             </div>
-
-            {/* Income Modal */}
-            {showIncomeModal && (
-                <div className="modal-overlay" onClick={() => setShowIncomeModal(false)}>
-                    <div className="modal" role="dialog" aria-modal="true" aria-labelledby="income-modal-title" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <h2 className="modal-title" id="income-modal-title">💰 Nuevo ingreso</h2>
-                            <button className="modal-close" aria-label="Cerrar" onClick={() => setShowIncomeModal(false)}>×</button>
-                        </div>
-                        <form onSubmit={handleIncomeSubmit}>
-                            <div className="modal-body">
-                                {incomeError && <div className="alert alert-danger" role="alert">{incomeError}</div>}
-                                <div className="form-group">
-                                    <label className="form-label">Importe (€)</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0.01"
-                                        required
-                                        className="form-input"
-                                        placeholder="0.00"
-                                        value={incomeForm.amount}
-                                        onChange={(e) => setIncomeForm({ ...incomeForm, amount: e.target.value })}
-                                        autoFocus
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Categoría</label>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        placeholder="ej: Nómina, Freelance..."
-                                        value={incomeForm.category}
-                                        onChange={(e) => setIncomeForm({ ...incomeForm, category: e.target.value })}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Fuente (opcional)</label>
-                                    <input
-                                        type="text"
-                                        className="form-input"
-                                        placeholder="ej: Empresa ABC"
-                                        value={incomeForm.source}
-                                        onChange={(e) => setIncomeForm({ ...incomeForm, source: e.target.value })}
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Fecha</label>
-                                    <input
-                                        type="date"
-                                        className="form-input"
-                                        value={incomeForm.date}
-                                        onChange={(e) => setIncomeForm({ ...incomeForm, date: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-                            <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowIncomeModal(false)}>
-                                    Cancelar
-                                </button>
-                                <button type="submit" className="btn btn-primary" disabled={saving}>
-                                    {saving ? 'Guardando...' : 'Guardar ingreso'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-
-            {/* Expense Modal */}
-            {showExpenseModal && (
-                <div className="modal-overlay" onClick={() => setShowExpenseModal(false)}>
-                    <div className="modal" role="dialog" aria-modal="true" aria-labelledby="expense-modal-title" onClick={(e) => e.stopPropagation()}>
-                        <div className="modal-header">
-                            <h2 className="modal-title" id="expense-modal-title">💸 Nuevo gasto</h2>
-                            <button className="modal-close" aria-label="Cerrar" onClick={() => setShowExpenseModal(false)}>×</button>
-                        </div>
-                        <form onSubmit={handleExpenseSubmit}>
-                            <div className="modal-body">
-                                {expenseError && <div className="alert alert-danger" role="alert">{expenseError}</div>}
-                                <div className="form-group">
-                                    <label className="form-label">Importe (€)</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        min="0.01"
-                                        required
-                                        className="form-input"
-                                        placeholder="0.00"
-                                        value={expenseForm.amount}
-                                        onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
-                                        autoFocus
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Categoría</label>
-                                    <select
-                                        className="form-input form-select"
-                                        value={expenseForm.category}
-                                        onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
-                                    >
-                                        <option value="">Selecciona categoría</option>
-                                        {categories.map(cat => (
-                                            <option key={cat.id} value={cat.name}>{cat.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="grid grid-2 gap-md">
-                                    <div className="form-group">
-                                        <label className="form-label">Método de pago</label>
-                                        <select
-                                            className="form-input form-select"
-                                            value={expenseForm.payment_method}
-                                            onChange={(e) => setExpenseForm({ ...expenseForm, payment_method: e.target.value })}
-                                        >
-                                            <option value="Tarjeta">Tarjeta</option>
-                                            <option value="Efectivo">Efectivo</option>
-                                            <option value="Transferencia">Transferencia</option>
-                                            <option value="Bizum">Bizum</option>
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Tipo</label>
-                                        <select
-                                            className="form-input form-select"
-                                            value={expenseForm.expense_type}
-                                            onChange={(e) => setExpenseForm({ ...expenseForm, expense_type: e.target.value })}
-                                        >
-                                            <option value="Variable">Variable</option>
-                                            <option value="Fijo">Fijo</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">Fecha</label>
-                                    <input
-                                        type="date"
-                                        className="form-input"
-                                        value={expenseForm.date}
-                                        onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-                            <div className="modal-footer">
-                                <button type="button" className="btn btn-secondary" onClick={() => setShowExpenseModal(false)}>
-                                    Cancelar
-                                </button>
-                                <button type="submit" className="btn btn-primary" disabled={saving}>
-                                    {saving ? 'Guardando...' : 'Guardar gasto'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

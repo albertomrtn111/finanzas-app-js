@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
 import Sidebar from '@/components/Sidebar';
+import { FabSpacer, MovementsProvider } from '@/components/movements/MovementsProvider';
 
 export default async function DashboardLayout({ children }) {
     const session = await getServerSession(authOptions);
@@ -27,12 +28,16 @@ export default async function DashboardLayout({ children }) {
     if (user.account_mode === 'COMPANY') redirect('/empresa');
     if (user.onboarding_step < 5) redirect('/onboarding');
 
+    // MovementsProvider pone el botón «+» (apuntar un gasto o ingreso) en todas las pantallas personales.
     return (
-        <div style={{ display: 'flex', minHeight: '100vh' }}>
-            <Sidebar />
-            <main className="main-content">
-                {children}
-            </main>
-        </div>
+        <MovementsProvider>
+            <div style={{ display: 'flex', minHeight: '100vh' }}>
+                <Sidebar />
+                <main className="main-content">
+                    {children}
+                    <FabSpacer />
+                </main>
+            </div>
+        </MovementsProvider>
     );
 }
