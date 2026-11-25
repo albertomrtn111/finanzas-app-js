@@ -1,706 +1,208 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { localDateKey, parseAppDate } from '@/lib/dateUtils';
+import { useEffect, useRef, useState } from 'react';
+import { EmptyState, LoadState, Money, useFeedback } from '@/components/ui';
+import MovementDayList from '@/components/movements/MovementDayList';
+import MovementFilters from '@/components/movements/MovementFilters';
+import MovementForm from '@/components/movements/MovementForm';
+import { useMovementDialog } from '@/components/movements/MovementsProvider';
+import { fetchCategories, fetchMovements } from '@/components/movements/movementsApi';
+import { useMovementActions, useMovementsChanged } from '@/components/movements/useMovementActions';
+import styles from '@/components/movements/movements.module.css';
+import { todayKey } from '@/lib/dateFormat';
+import { KIND_TEXT } from '@/lib/movementForm';
+import { EMPTY_FILTERS, PAGE_SIZE, filtersToQuery, hasActiveFilters, toCents } from '@/lib/movementList';
+
+const MODES = [{ kind: 'expense', label: 'Gastos' }, { kind: 'income', label: 'Ingresos' }];
+const EMPTY_LIST = { key: null, kind: null, items: [], count: 0, totalCents: 0, error: '' };
 
 export default function RegistroPage() {
-    const [mode, setMode] = useState('gastos');
-    const [expenses, setExpenses] = useState([]);
-    const [incomes, setIncomes] = useState([]);
-    const [expenseCategories, setExpenseCategories] = useState([]);
-    const [incomeCategories, setIncomeCategories] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [message, setMessage] = useState({ type: '', text: '' });
-    const [editingId, setEditingId] = useState(null);
-
-    // Pagination state
-    const LIMIT = 50;
-    const [expensesOffset, setExpensesOffset] = useState(0);
-    const [incomesOffset, setIncomesOffset] = useState(0);
-    const [hasMoreExpenses, setHasMoreExpenses] = useState(true);
-    const [hasMoreIncomes, setHasMoreIncomes] = useState(true);
+    const [kind, setKind] = useState('expense');
+    const [filters, setFilters] = useState(EMPTY_FILTERS);
+    const [q, setQ] = useState('');
+    const [list, setList] = useState(EMPTY_LIST);
+    const [refresh, setRefresh] = useState(0);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [categories, setCategories] = useState({ kind: null, list: [] });
+    const loaded = useRef({ key: null, size: 0 });
+    const { openMovement } = useMovementDialog();
+    const { remove } = useMovementActions();
+    const { toast } = useFeedback();
+    const text = KIND_TEXT[kind];
 
-    // Date persistence
-    const TODAY = localDateKey();
-    const [autoDate, setAutoDate] = useState(TODAY);
+    // La búsqueda espera a que se deje de escribir; el resto de filtros se aplica al momento.
+    useEffect(() => {
+        const timer = setTimeout(() => setQ(filters.q), 300);
+        return () => clearTimeout(timer);
+    }, [filters.q]);
 
-    const updateAutoDate = (newDate) => {
-        setAutoDate(newDate);
-        localStorage.setItem('nextfinance_last_date', newDate);
-    };
-
-    // Initial states for resetting (using function to get dynamic date)
-    const getInitialExpenseForm = (date) => ({
-        date: date,
-        amount: '',
-        category: '',
-        subcategory: '',
-        payment_method: 'Tarjeta',
-        expense_type: 'Variable',
-        notes: '',
-    });
-
-    const getInitialIncomeForm = (date) => ({
-        date: date,
-        amount: '',
-        source: '',
-        category: '',
-        notes: '',
-    });
-
-    // Form states
-    const [expenseForm, setExpenseForm] = useState(getInitialExpenseForm(TODAY));
-    const [incomeForm, setIncomeForm] = useState(getInitialIncomeForm(TODAY));
+    const { query, errors } = filtersToQuery(filters, { today: todayKey(), q });
+    const invalid = Boolean(errors);
+    const requestKey = `${kind}?${query}`;
+    const active = hasActiveFilters({ ...filters, q });
 
     useEffect(() => {
-        const timer = setTimeout(() => {
-            const savedDate = localStorage.getItem('nextfinance_last_date');
-            if (savedDate && /^\d{4}-\d{2}-\d{2}$/.test(savedDate) && parseAppDate(savedDate)) {
-                setAutoDate(savedDate);
-                setExpenseForm(prev => ({ ...prev, date: savedDate }));
-                setIncomeForm(prev => ({ ...prev, date: savedDate }));
-            }
-        }, 0);
-        return () => clearTimeout(timer);
-    }, []);
-
-
-    const loadInitialData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const [expRes, incRes, expCatRes, incCatRes] = await Promise.all([
-                fetch(`/api/expenses?limit=${LIMIT}&offset=0`),
-                fetch(`/api/income?limit=${LIMIT}&offset=0`),
-                fetch('/api/categories?type=expense'),
-                fetch('/api/categories?type=income'),
-            ]);
-
-            if (expRes.ok) {
-                const data = await expRes.json();
-                setExpenses(Array.isArray(data) ? data : []);
-                setHasMoreExpenses(data.length === LIMIT);
-                setExpensesOffset(data.length);
-            }
-            if (incRes.ok) {
-                const data = await incRes.json();
-                setIncomes(Array.isArray(data) ? data : []);
-                setHasMoreIncomes(data.length === LIMIT);
-                setIncomesOffset(data.length);
-            }
-            if (expCatRes.ok) {
-                const cats = await expCatRes.json();
-                setExpenseCategories(cats);
-                if (cats.length > 0) setExpenseForm(f => f.category ? f : ({ ...f, category: cats[0].name }));
-            }
-            if (incCatRes.ok) {
-                const cats = await incCatRes.json();
-                setIncomeCategories(cats);
-                if (cats.length > 0) setIncomeForm(f => f.category ? f : ({ ...f, category: cats[0].name }));
-            }
-        } catch (error) {
-            console.error('Error cargando datos:', error);
-        }
-        setLoading(false);
-    }, []);
+        if (invalid) return undefined;
+        const controller = new AbortController();
+        // Al recargar la misma lista (tras guardar o borrar) se pide lo que ya estaba cargado,
+        // para no perder la posición; con filtros nuevos, la primera página.
+        const limit = loaded.current.key === requestKey ? Math.min(500, Math.max(PAGE_SIZE, loaded.current.size)) : PAGE_SIZE;
+        fetchMovements(kind, query, { limit, signal: controller.signal })
+            .then(result => {
+                loaded.current = { key: requestKey, size: result.items.length };
+                setList({ key: requestKey, kind, items: result.items, count: result.count, totalCents: toCents(result.total), error: '' });
+            })
+            .catch(error => {
+                if (!controller.signal.aborted) setList({ ...EMPTY_LIST, key: requestKey, kind, error: error.message });
+            });
+        return () => controller.abort();
+    }, [kind, query, requestKey, refresh, invalid]);
 
     useEffect(() => {
-        const timer = setTimeout(() => { void loadInitialData(); }, 0);
-        return () => clearTimeout(timer);
-    }, [loadInitialData]);
+        const controller = new AbortController();
+        fetchCategories(kind, controller.signal)
+            .then(result => setCategories({ kind, list: result }))
+            // Sin categorías el filtro solo ofrece «Todas»; la lista enseña su propio error.
+            .catch(() => {});
+        return () => controller.abort();
+    }, [kind, refresh]);
 
-    const loadMoreExpenses = async () => {
-        if (loadingMore || !hasMoreExpenses) return;
+    // Cualquier alta, cambio, borrado o «Deshacer» (también desde el botón «+») recarga en segundo plano.
+    useMovementsChanged(() => setRefresh(value => value + 1));
+
+    const loading = !invalid && list.key !== requestKey;
+    // Mientras llegan los resultados de un filtro nuevo se siguen viendo los anteriores, atenuados.
+    const stale = loading && list.key !== null && list.kind === kind && !list.error;
+    const hasMore = list.items.length < list.count;
+
+    const changeKind = next => {
+        setKind(next);
+        setFilters(current => ({ ...current, category: '' }));
+    };
+
+    const clearFilters = () => {
+        setFilters(EMPTY_FILTERS);
+        setQ('');
+    };
+
+    const retry = () => {
+        setList(EMPTY_LIST);
+        setRefresh(value => value + 1);
+    };
+
+    const loadMore = async () => {
+        if (loadingMore) return;
         setLoadingMore(true);
         try {
-            const res = await fetch(`/api/expenses?limit=${LIMIT}&offset=${expensesOffset}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data)) {
-                    setExpenses(prev => [...prev, ...data]);
-                    setExpensesOffset(prev => prev + data.length);
-                    setHasMoreExpenses(data.length === LIMIT);
-                }
-            }
-        } catch (err) {
-            console.error('Error loading more expenses', err);
-        }
-        setLoadingMore(false);
-    };
-
-    const loadMoreIncomes = async () => {
-        if (loadingMore || !hasMoreIncomes) return;
-        setLoadingMore(true);
-        try {
-            const res = await fetch(`/api/income?limit=${LIMIT}&offset=${incomesOffset}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data)) {
-                    setIncomes(prev => [...prev, ...data]);
-                    setIncomesOffset(prev => prev + data.length);
-                    setHasMoreIncomes(data.length === LIMIT);
-                }
-            }
-        } catch (err) {
-            console.error('Error loading more incomes', err);
-        }
-        setLoadingMore(false);
-    };
-
-    const reloadList = async () => {
-        loadInitialData();
-    };
-
-    const showMessage = (type, text) => {
-        setMessage({ type, text });
-        setTimeout(() => setMessage({ type: '', text: '' }), 3000);
-    };
-
-    const cancelEdit = (dateOverride) => {
-        setEditingId(null);
-        // Use override if provided (during submit), otherwise use current autoDate state (during cancel/tab switch)
-        const dateToUse = (typeof dateOverride === 'string') ? dateOverride : autoDate;
-
-        setExpenseForm({
-            ...getInitialExpenseForm(dateToUse),
-            category: expenseCategories.length > 0 ? expenseCategories[0].name : ''
-        });
-        setIncomeForm({
-            ...getInitialIncomeForm(dateToUse),
-            category: incomeCategories.length > 0 ? incomeCategories[0].name : ''
-        });
-    };
-
-    const handleEditExpense = (exp) => {
-        setMode('gastos');
-        setEditingId(exp.id);
-        setExpenseForm({
-            date: exp.date.split('T')[0],
-            amount: exp.amount,
-            category: exp.category,
-            subcategory: exp.subcategory || '',
-            payment_method: exp.payment_method,
-            expense_type: exp.expense_type || 'Variable',
-            notes: exp.notes || '',
-        });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    const handleEditIncome = (inc) => {
-        setMode('ingresos');
-        setEditingId(inc.id);
-        setIncomeForm({
-            date: inc.date.split('T')[0],
-            amount: inc.amount,
-            source: inc.source || '',
-            category: inc.category,
-            notes: inc.notes || '',
-        });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-
-    const handleSubmitExpense = async (e) => {
-        e.preventDefault();
-        if (!expenseForm.amount || parseFloat(expenseForm.amount) <= 0) {
-            showMessage('error', 'El importe debe ser mayor que 0');
-            return;
-        }
-
-        setSaving(true);
-        try {
-            const method = editingId ? 'PUT' : 'POST';
-            const body = editingId ? { ...expenseForm, id: editingId } : expenseForm;
-
-            const res = await fetch('/api/expenses', {
-                method: method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
+            const result = await fetchMovements(kind, query, { limit: PAGE_SIZE, offset: list.items.length });
+            setList(current => {
+                if (current.key !== requestKey) return current;
+                const seen = new Set(current.items.map(item => item.id));
+                const items = [...current.items, ...result.items.filter(item => !seen.has(item.id))];
+                return { ...current, items, count: result.count, totalCents: toCents(result.total) };
             });
-
-            if (res.ok) {
-                showMessage('success', `Gasto ${editingId ? 'actualizado' : 'guardado'} correctamente`);
-
-                // Update sticky date on success
-                updateAutoDate(expenseForm.date);
-
-                // Pass the DATE explicitly to cancelEdit to avoid stale state
-                cancelEdit(expenseForm.date);
-                reloadList();
-            } else {
-                showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'} el gasto`);
-            }
+            loaded.current = { key: requestKey, size: list.items.length + result.items.length };
         } catch (error) {
-            showMessage('error', 'Error de conexión');
-        }
-        setSaving(false);
-    };
-
-    const handleSubmitIncome = async (e) => {
-        e.preventDefault();
-        if (!incomeForm.amount || parseFloat(incomeForm.amount) <= 0) {
-            showMessage('error', 'El importe debe ser mayor que 0');
-            return;
-        }
-
-        setSaving(true);
-        try {
-            const method = editingId ? 'PUT' : 'POST';
-            const body = editingId ? { ...incomeForm, id: editingId } : incomeForm;
-
-            const res = await fetch('/api/income', {
-                method: method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-            });
-
-            if (res.ok) {
-                showMessage('success', `Ingreso ${editingId ? 'actualizado' : 'guardado'} correctamente`);
-
-                // Update sticky date on success
-                updateAutoDate(incomeForm.date);
-
-                // Pass the DATE explicitly to cancelEdit to avoid stale state
-                cancelEdit(incomeForm.date);
-                reloadList();
-            } else {
-                showMessage('error', `Error al ${editingId ? 'actualizar' : 'guardar'} el ingreso`);
-            }
-        } catch (error) {
-            showMessage('error', 'Error de conexión');
-        }
-        setSaving(false);
-    };
-
-    const handleDeleteExpense = async (id) => {
-        if (!confirm('¿Eliminar este gasto?')) return;
-        try {
-            const res = await fetch(`/api/expenses?id=${id}`, { method: 'DELETE' });
-            if (res.ok) {
-                showMessage('success', 'Gasto eliminado');
-                if (editingId === id) cancelEdit();
-                // Optimistic update or reload?
-                // For simplicity, reload or remove from state. Removing from state is better UX.
-                setExpenses(prev => prev.filter(e => e.id !== id));
-            }
-        } catch (error) {
-            showMessage('error', 'Error al eliminar');
+            toast({ type: 'error', text: `No se han podido cargar más ${text.many}: ${error.message}` });
+        } finally {
+            setLoadingMore(false);
         }
     };
 
-    const handleDeleteIncome = async (id) => {
-        if (!confirm('¿Eliminar este ingreso?')) return;
-        try {
-            const res = await fetch(`/api/income?id=${id}`, { method: 'DELETE' });
-            if (res.ok) {
-                showMessage('success', 'Ingreso eliminado');
-                if (editingId === id) cancelEdit();
-                setIncomes(prev => prev.filter(i => i.id !== id));
-            }
-        } catch (error) {
-            showMessage('error', 'Error al eliminar');
-        }
+    const deleteItem = async item => {
+        if (!(await remove(kind, item))) return;
+        setList(current => (current.kind === kind ? {
+            ...current,
+            items: current.items.filter(other => other.id !== item.id),
+            count: Math.max(0, current.count - 1),
+            totalCents: current.totalCents - toCents(item.amount),
+        } : current));
     };
 
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
-    };
-
-    const formatDate = (dateStr) => {
-        return parseAppDate(dateStr)?.toLocaleDateString('es-ES') || dateStr;
-    };
-
-    if (loading) {
-        return (
-            <div className="flex-center" style={{ minHeight: '400px' }}>
-                <div className="spinner"></div>
-            </div>
-        );
-    }
+    const showList = !invalid && list.items.length > 0 && (!loading || stale);
 
     return (
         <div className="page-container">
             <div className="page-header">
                 <h1 className="page-title">Registro de movimientos</h1>
-                <p className="page-subtitle">Registra y edita tus gastos e ingresos</p>
+                <p className="page-subtitle">Apunta, busca y corrige tus gastos e ingresos</p>
             </div>
 
-            {message.text && (
-                <div className={`alert alert-${message.type === 'success' ? 'success' : 'danger'}`}>
-                    {message.text}
+            <div className={`tabs ${styles.modeTabs}`} role="group" aria-label="Qué movimientos ver">
+                {MODES.map(mode => (
+                    <button key={mode.kind} type="button" className={`tab ${kind === mode.kind ? 'active' : ''}`} aria-pressed={kind === mode.kind} onClick={() => changeKind(mode.kind)}>
+                        {mode.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* En el móvil se apunta con el botón «+»; aquí queda la lista. */}
+            <section className={`card mb-lg ${styles.entryCard}`} aria-labelledby="registro-nuevo">
+                <div className="card-header">
+                    <h2 id="registro-nuevo" className={styles.cardTitle}>Nuevo {text.one}</h2>
                 </div>
-            )}
+                <div className="card-body">
+                    <MovementForm key={kind} kind={kind} />
+                </div>
+            </section>
 
-            {/* Tabs */}
-            <div className="tabs">
-                <button
-                    className={`tab ${mode === 'gastos' ? 'active' : ''}`}
-                    onClick={() => { setMode('gastos'); cancelEdit(); }}
-                >
-                    Gastos
-                </button>
-                <button
-                    className={`tab ${mode === 'ingresos' ? 'active' : ''}`}
-                    onClick={() => { setMode('ingresos'); cancelEdit(); }}
-                >
-                    Ingresos
-                </button>
-            </div>
+            <section className="card" aria-labelledby="registro-historial">
+                <div className="card-header">
+                    <h2 id="registro-historial" className={styles.cardTitle}>Historial de {text.many}</h2>
+                </div>
+                <div className="card-body">
+                    <MovementFilters
+                        key={kind}
+                        kind={kind}
+                        filters={filters}
+                        onChange={setFilters}
+                        categories={categories.kind === kind ? categories.list : []}
+                        errors={errors}
+                    />
 
-            {/* GASTOS */}
-            {mode === 'gastos' && (
-                <>
-                    <div className="card mb-lg">
-                        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3>{editingId ? 'Editar gasto' : 'Nuevo gasto'}</h3>
-                            {editingId && (
-                                <button className="btn btn-sm btn-outline" onClick={cancelEdit}>
-                                    Cancelar edición
-                                </button>
-                            )}
-                        </div>
-                        <div className="card-body">
-                            {expenseCategories.length === 0 ? (
-                                <div className="alert alert-warning">
-                                    No tienes categorías de gasto. Ve a Categorías para crear al menos una.
-                                </div>
-                            ) : (
-                                <form onSubmit={handleSubmitExpense}>
-                                    <div className="grid grid-2 gap-md">
-                                        <div className="form-group">
-                                            <label className="form-label">Fecha</label>
-                                            <input
-                                                type="date"
-                                                className="form-input"
-                                                value={expenseForm.date}
-                                                onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Importe (€)</label>
-                                            <input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                className="form-input"
-                                                placeholder="0.00"
-                                                value={expenseForm.amount}
-                                                onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Categoría</label>
-                                            <select
-                                                className="form-input form-select"
-                                                value={expenseForm.category}
-                                                onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value })}
-                                            >
-                                                {expenseCategories.map((cat) => (
-                                                    <option key={cat.id} value={cat.name}>{cat.name}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Subcategoría (opcional)</label>
-                                            <input
-                                                type="text"
-                                                className="form-input"
-                                                placeholder="ej: Netflix"
-                                                value={expenseForm.subcategory}
-                                                onChange={(e) => setExpenseForm({ ...expenseForm, subcategory: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Método de pago</label>
-                                            <select
-                                                className="form-input form-select"
-                                                value={expenseForm.payment_method}
-                                                onChange={(e) => setExpenseForm({ ...expenseForm, payment_method: e.target.value })}
-                                            >
-                                                <option>Tarjeta</option>
-                                                <option>Efectivo</option>
-                                                <option>Bizum</option>
-                                                <option>Transferencia</option>
-                                                <option>Otro</option>
-                                            </select>
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Tipo de gasto</label>
-                                            <select
-                                                className="form-input form-select"
-                                                value={expenseForm.expense_type}
-                                                onChange={(e) => setExpenseForm({ ...expenseForm, expense_type: e.target.value })}
-                                            >
-                                                <option>Variable</option>
-                                                <option>Fijo</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Notas (opcional)</label>
-                                        <textarea
-                                            className="form-input"
-                                            rows="2"
-                                            placeholder="Añade un comentario (opcional)"
-                                            value={expenseForm.notes}
-                                            onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
-                                        />
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '1rem' }}>
-                                        <button type="submit" className="btn btn-primary" disabled={saving}>
-                                            {saving ? 'Guardando...' : editingId ? 'Actualizar gasto' : 'Guardar gasto'}
-                                        </button>
-                                        {editingId && (
-                                            <button type="button" className="btn btn-outline" onClick={cancelEdit}>
-                                                Cancelar
-                                            </button>
-                                        )}
-                                    </div>
-                                </form>
-                            )}
-                        </div>
+                    <div className={styles.resultBar}>
+                        <p className={styles.resultText} aria-live="polite">
+                            {invalid ? 'Revisa los filtros marcados para ver resultados.'
+                                : list.key === requestKey && !list.error ? (
+                                    <>
+                                        <strong>{list.count} {list.count === 1 ? text.one : text.many}</strong>
+                                        {active ? ' con estos filtros' : ''} · <Money value={list.totalCents / 100} tone={kind === 'income' ? 'positive' : undefined} />
+                                    </>
+                                ) : loading ? 'Buscando…' : ''}
+                        </p>
+                        {active && <button type="button" className={`btn btn-secondary btn-sm ${styles.clearButton}`} onClick={clearFilters}>Quitar filtros</button>}
                     </div>
 
-                    <div className="card">
-                        <div className="card-header">
-                            <h3>Historial de gastos</h3>
-                        </div>
-                        <div className="card-body">
-                            {expenses.length === 0 ? (
-                                <div className="empty-state">
-                                    <div className="empty-state-icon">📝</div>
-                                    <p>No hay gastos registrados</p>
-                                </div>
-                            ) : (
+                    {!invalid && (
+                        <LoadState loading={loading && !stale} error={list.key === requestKey ? list.error : ''} onRetry={retry} label={`Cargando ${text.many}…`}>
+                            {showList ? (
                                 <>
-                                    <div className="table-container">
-                                        <table className="table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Fecha</th>
-                                                    <th>Importe</th>
-                                                    <th>Categoría</th>
-                                                    <th>Subcategoría</th>
-                                                    <th>Método</th>
-                                                    <th>Notas</th>
-                                                    <th>Acciones</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {expenses.map((exp) => (
-                                                    <tr key={exp.id} className={editingId === exp.id ? 'bg-highlight' : ''}>
-                                                        <td>{formatDate(exp.date)}</td>
-                                                        <td className="font-semibold">{formatCurrency(exp.amount)}</td>
-                                                        <td><span className="badge badge-primary">{exp.category}</span></td>
-                                                        <td className="text-muted">{exp.subcategory || '-'}</td>
-                                                        <td className="text-sm">{exp.payment_method}</td>
-                                                        <td className="text-muted text-sm" style={{ maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                            {exp.notes || '-'}
-                                                        </td>
-                                                        <td>
-                                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                                <button
-                                                                    className="btn btn-icon btn-secondary"
-                                                                    onClick={() => handleEditExpense(exp)}
-                                                                    title="Editar"
-                                                                >
-                                                                    ✏️
-                                                                </button>
-                                                                <button
-                                                                    className="btn btn-icon btn-danger"
-                                                                    onClick={() => handleDeleteExpense(exp.id)}
-                                                                    title="Eliminar"
-                                                                >
-                                                                    🗑️
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    {hasMoreExpenses && (
-                                        <div style={{ textAlign: 'center', marginTop: '1rem' }}>
-                                            <button
-                                                className="btn btn-outline"
-                                                onClick={loadMoreExpenses}
-                                                disabled={loadingMore}
-                                            >
-                                                {loadingMore ? 'Cargando...' : 'Cargar más gastos'}
+                                    <MovementDayList kind={kind} items={list.items} busy={stale} onOpen={item => openMovement({ kind, record: item })} onDelete={deleteItem} />
+                                    {hasMore && (
+                                        <div className={styles.loadMore}>
+                                            <button type="button" className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}>
+                                                {loadingMore ? 'Cargando…' : `Cargar más ${text.many} (${list.count - list.items.length} más)`}
                                             </button>
                                         </div>
                                     )}
                                 </>
-                            )}
-                        </div>
-                    </div>
-                </>
-            )}
-
-            {/* INGRESOS */}
-            {mode === 'ingresos' && (
-                <>
-                    <div className="card mb-lg">
-                        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <h3>{editingId ? 'Editar ingreso' : 'Nuevo ingreso'}</h3>
-                            {editingId && (
-                                <button className="btn btn-sm btn-outline" onClick={cancelEdit}>
-                                    Cancelar edición
-                                </button>
-                            )}
-                        </div>
-                        <div className="card-body">
-                            {incomeCategories.length === 0 ? (
-                                <div className="alert alert-warning">
-                                    No tienes categorías de ingreso. Ve a Categorías para crear al menos una.
-                                </div>
+                            ) : active ? (
+                                <EmptyState
+                                    title={`Ningún ${text.one} coincide con los filtros`}
+                                    text="Prueba con otras palabras u otras fechas, o quita los filtros."
+                                    action={<button type="button" className="btn btn-secondary" onClick={clearFilters}>Quitar filtros</button>}
+                                />
                             ) : (
-                                <form onSubmit={handleSubmitIncome}>
-                                    <div className="grid grid-2 gap-md">
-                                        <div className="form-group">
-                                            <label className="form-label">Fecha</label>
-                                            <input
-                                                type="date"
-                                                className="form-input"
-                                                value={incomeForm.date}
-                                                onChange={(e) => setIncomeForm({ ...incomeForm, date: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Importe (€)</label>
-                                            <input
-                                                type="number"
-                                                step="0.01"
-                                                min="0"
-                                                className="form-input"
-                                                placeholder="0.00"
-                                                value={incomeForm.amount}
-                                                onChange={(e) => setIncomeForm({ ...incomeForm, amount: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Fuente</label>
-                                            <input
-                                                type="text"
-                                                className="form-input"
-                                                placeholder="ej: Nómina, Freelance..."
-                                                value={incomeForm.source}
-                                                onChange={(e) => setIncomeForm({ ...incomeForm, source: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="form-group">
-                                            <label className="form-label">Categoría</label>
-                                            <select
-                                                className="form-input form-select"
-                                                value={incomeForm.category}
-                                                onChange={(e) => setIncomeForm({ ...incomeForm, category: e.target.value })}
-                                            >
-                                                {incomeCategories.map((cat) => (
-                                                    <option key={cat.id} value={cat.name}>{cat.name}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="form-label">Notas (opcional)</label>
-                                        <textarea
-                                            className="form-input"
-                                            rows="2"
-                                            placeholder="Añade un comentario (opcional)"
-                                            value={incomeForm.notes}
-                                            onChange={(e) => setIncomeForm({ ...incomeForm, notes: e.target.value })}
-                                        />
-                                    </div>
-                                    <div style={{ display: 'flex', gap: '1rem' }}>
-                                        <button type="submit" className="btn btn-success" disabled={saving}>
-                                            {saving ? 'Guardando...' : editingId ? 'Actualizar ingreso' : 'Guardar ingreso'}
-                                        </button>
-                                        {editingId && (
-                                            <button type="button" className="btn btn-outline" onClick={cancelEdit}>
-                                                Cancelar
-                                            </button>
-                                        )}
-                                    </div>
-                                </form>
+                                <EmptyState
+                                    title={`Aún no has apuntado ${text.many}`}
+                                    text={`Cuando apuntes ${kind === 'expense' ? 'un gasto' : 'un ingreso'} aparecerá aquí, agrupado por días.`}
+                                    action={<button type="button" className="btn btn-primary" onClick={() => openMovement({ kind })}>Añadir {text.one}</button>}
+                                />
                             )}
-                        </div>
-                    </div>
-
-                    <div className="card">
-                        <div className="card-header">
-                            <h3>Historial de ingresos</h3>
-                        </div>
-                        <div className="card-body">
-                            {incomes.length === 0 ? (
-                                <div className="empty-state">
-                                    <div className="empty-state-icon">💵</div>
-                                    <p>No hay ingresos registrados</p>
-                                </div>
-                            ) : (
-                                <>
-                                    <div className="table-container">
-                                        <table className="table">
-                                            <thead>
-                                                <tr>
-                                                    <th>Fecha</th>
-                                                    <th>Importe</th>
-                                                    <th>Fuente</th>
-                                                    <th>Categoría</th>
-                                                    <th>Notas</th>
-                                                    <th>Acciones</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {incomes.map((inc) => (
-                                                    <tr key={inc.id} className={editingId === inc.id ? 'bg-highlight' : ''}>
-                                                        <td>{formatDate(inc.date)}</td>
-                                                        <td className="font-semibold text-success">{formatCurrency(inc.amount)}</td>
-                                                        <td>{inc.source || '-'}</td>
-                                                        <td><span className="badge badge-success">{inc.category}</span></td>
-                                                        <td className="text-muted text-sm" style={{ maxWidth: '200px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                                            {inc.notes || '-'}
-                                                        </td>
-                                                        <td>
-                                                            <div style={{ display: 'flex', gap: '0.5rem' }}>
-                                                                <button
-                                                                    className="btn btn-icon btn-secondary"
-                                                                    onClick={() => handleEditIncome(inc)}
-                                                                    title="Editar"
-                                                                >
-                                                                    ✏️
-                                                                </button>
-                                                                <button
-                                                                    className="btn btn-icon btn-danger"
-                                                                    onClick={() => handleDeleteIncome(inc.id)}
-                                                                    title="Eliminar"
-                                                                >
-                                                                    🗑️
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    {hasMoreIncomes && (
-                                        <div style={{ textAlign: 'center', marginTop: '1rem' }}>
-                                            <button
-                                                className="btn btn-outline"
-                                                onClick={loadMoreIncomes}
-                                                disabled={loadingMore}
-                                            >
-                                                {loadingMore ? 'Cargando...' : 'Cargar más ingresos'}
-                                            </button>
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                        </div>
-                    </div>
-                </>
-            )}
+                        </LoadState>
+                    )}
+                </div>
+            </section>
         </div>
     );
 }
