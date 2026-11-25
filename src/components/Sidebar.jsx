@@ -5,6 +5,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
+import SpaceSwitcher from '@/components/SpaceSwitcher';
+import useIsMobile from '@/components/useIsMobile';
 
 const menuItems = [
     { label: 'Inicio', href: '/', icon: '🏠' },
@@ -28,7 +30,7 @@ function getPageTitle(pathname) {
     const item = menuItems.find(i => i.href === pathname);
     if (item) return item.label;
     if (pathname.startsWith('/inversiones')) return 'Inversiones';
-    if (pathname.startsWith('/perfil')) return 'Mi Perfil';
+    if (pathname.startsWith('/perfil')) return 'Mi perfil';
     if (pathname.startsWith('/onboarding')) return 'Configuración';
     return 'NextFinance';
 }
@@ -36,6 +38,7 @@ function getPageTitle(pathname) {
 export default function Sidebar() {
     const pathname = usePathname();
     const [isOpen, setIsOpen] = useState(false);
+    const isMobile = useIsMobile();
 
     // Close drawer on route change
     useEffect(() => {
@@ -52,17 +55,9 @@ export default function Sidebar() {
         return () => document.removeEventListener('keydown', handleEscape);
     }, []);
 
-    // Prevent body scroll when drawer is open, dispatch layout change on close
+    // Sin desplazamiento de fondo mientras el menú está abierto en el móvil.
     useEffect(() => {
-        if (isOpen) {
-            document.body.style.overflow = 'hidden';
-        } else {
-            document.body.style.overflow = '';
-            // Dispatch custom event for charts to re-render after sidebar closes
-            setTimeout(() => {
-                window.dispatchEvent(new Event('app:layoutchange'));
-            }, 50);
-        }
+        document.body.style.overflow = isOpen ? 'hidden' : '';
         return () => { document.body.style.overflow = ''; };
     }, [isOpen]);
 
@@ -75,16 +70,18 @@ export default function Sidebar() {
                 <button
                     className="hamburger-btn"
                     onClick={() => setIsOpen(!isOpen)}
-                    aria-label="Toggle menu"
+                    aria-label={isOpen ? 'Cerrar menú' : 'Abrir menú'}
+                    aria-expanded={isOpen}
+                    aria-controls="menu-principal"
                 >
-                    <span className="hamburger-icon">{isOpen ? '✕' : '☰'}</span>
+                    <span className="hamburger-icon" aria-hidden="true">{isOpen ? '✕' : '☰'}</span>
                 </button>
                 <div className="mobile-brand" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
                     {/* Logo removed for mobile as requested - keeps header clean */}
                     <span className="mobile-title">{pageTitle}</span>
                 </div>
-                <Link href="/perfil" className="mobile-profile-btn">
-                    👤
+                <Link href="/perfil" className="mobile-profile-btn" aria-label="Mi perfil">
+                    <span aria-hidden="true">👤</span>
                 </Link>
             </div>
 
@@ -95,7 +92,8 @@ export default function Sidebar() {
             />
 
             {/* Sidebar Drawer */}
-            <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+            {/* En el móvil, cerrado, el menú queda fuera del alcance del tabulador y del lector de pantalla. */}
+            <aside id="menu-principal" className={`sidebar ${isOpen ? 'open' : ''}`} inert={isMobile && !isOpen ? true : undefined}>
                 {/* Header with logo and user avatar */}
                 <div className="sidebar-header">
                     <Link href="/" className="sidebar-logo">
@@ -109,12 +107,12 @@ export default function Sidebar() {
                         />
                         <span>NextFinance</span>
                     </Link>
-                    <Link href="/perfil" title="Mi perfil" className="sidebar-profile-btn">
-                        👤
+                    <Link href="/perfil" className="sidebar-profile-btn" aria-label="Mi perfil">
+                        <span aria-hidden="true">👤</span>
                     </Link>
                 </div>
 
-                <nav className="sidebar-nav">
+                <nav className="sidebar-nav" aria-label="Navegación personal">
                     {menuItems.map((item, index) => {
                         if (item.section) {
                             return (
@@ -131,20 +129,23 @@ export default function Sidebar() {
                                 key={item.href}
                                 href={item.href}
                                 className={`sidebar-link ${isActive ? 'active' : ''}`}
+                                aria-current={isActive ? 'page' : undefined}
                             >
-                                <span>{item.icon}</span>
+                                <span aria-hidden="true">{item.icon}</span>
                                 <span>{item.label}</span>
                             </Link>
                         );
                     })}
                 </nav>
 
+                <SpaceSwitcher current="personal" />
+
                 <div className="sidebar-footer">
                     <button
                         onClick={() => signOut({ callbackUrl: '/login' })}
                         className="sidebar-link"
                     >
-                        <span>🚪</span>
+                        <span aria-hidden="true">🚪</span>
                         <span>Cerrar sesión</span>
                     </button>
                 </div>

@@ -2,8 +2,8 @@ import "./globals.css";
 import Providers from "@/components/Providers";
 
 export const metadata = {
-  title: "NextFinance",
-  description: "Gestiona tus finanzas personales de forma inteligente",
+  title: { default: "NextFinance", template: "%s · NextFinance" },
+  description: "Tus finanzas personales y de empresa en un solo sitio",
   applicationName: "NextFinance",
   manifest: "/manifest.webmanifest",
   icons: {
@@ -24,7 +24,10 @@ export const metadata = {
 };
 
 export const viewport = {
-  themeColor: "#0a0a0f",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F9FAFB" },
+    { media: "(prefers-color-scheme: dark)", color: "#111827" },
+  ],
   width: "device-width",
   initialScale: 1,
 };

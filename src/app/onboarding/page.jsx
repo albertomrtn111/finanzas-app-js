@@ -8,6 +8,7 @@ import Link from 'next/link';
 import CategoryStep from '@/components/onboarding/CategoryStep';
 import ProductStep from '@/components/onboarding/ProductStep';
 import BudgetStep from '@/components/onboarding/BudgetStep';
+import Image from 'next/image';
 
 const STEPS = [
     { id: 1, title: 'Categorías de gasto', description: 'Crea las categorías que usarás para clasificar tus gastos' },
@@ -111,8 +112,8 @@ export default function OnboardingPage() {
             {/* Header */}
             <div className="onboarding-header">
                 <div className="onboarding-logo">
-                    <span style={{ fontSize: '2rem' }}>💰</span>
-                    <span style={{ fontSize: '1.25rem', fontWeight: 600 }}>Finanzas</span>
+                    <Image src="/NextFinance.png" alt="" width={32} height={32} priority style={{ borderRadius: '8px' }} />
+                    <span style={{ fontSize: '1.25rem', fontWeight: 600 }}>NextFinance</span>
                 </div>
                 <button
                     onClick={handleSkip}
