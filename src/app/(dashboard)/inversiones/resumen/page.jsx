@@ -1,406 +1,180 @@
-'use client';
+import Link from 'next/link';
+import BarList from '@/components/charts/BarList';
+import ChartFrame from '@/components/charts/ChartFrame';
+import ChartLegend from '@/components/charts/ChartLegend';
+import PeriodTabs from '@/components/charts/PeriodTabs';
+import { LazyDonutChart, LazyEvolutionChart } from '@/components/charts/lazy';
+import { SERIES } from '@/components/charts/palette';
+import styles from '@/components/charts/charts.module.css';
+import { EmptyState } from '@/components/ui/States';
+import { formatDate } from '@/lib/dateFormat';
+import { formatEuro, formatPct, formatSignedPct } from '@/lib/moneyFormat';
+import { loadInversiones, requireUserId, todayInSpain } from '@/lib/pageData';
+import { toSlices } from '@/lib/resumenView';
+import { WINDOW_OPTIONS, parseWindow } from '@/lib/wealth';
 
-import { useState, useEffect } from 'react';
-import {
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-    LineChart, Line, Legend, PieChart, Pie, Cell
-} from 'recharts';
-import ChartContainer from '@/components/ChartContainer';
-import CustomTooltip from '@/components/charts/CustomTooltip';
-import PieTooltip from '@/components/charts/PieTooltip';
-import { renderPieLabel } from '@/lib/chartUtils';
-import { parseAppDate, localDateKey } from '@/lib/dateUtils';
+function windowHref(value) {
+    return value === '12' ? '/inversiones/resumen' : `/inversiones/resumen?meses=${value}`;
+}
 
+// Resumen de la cartera. Server Component; la ventana de la evolución va en la URL (?meses=…).
+// Capital aportado = suma de las aportaciones registradas menos las retiradas (cada registro guarda lo
+// aportado en ese momento, no un acumulado). Plusvalía = valor actual − capital aportado.
+export default async function InversionesResumenPage({ searchParams }) {
+    const userId = await requireUserId();
+    const today = todayInSpain();
+    const range = parseWindow((await searchParams).meses);
+    const view = await loadInversiones(userId, { months: range.months, today });
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
+    const header = (
+        <div className="page-header">
+            <h1 className="page-title">Resumen de inversiones</h1>
+            <p className="page-subtitle">Tu cartera a {formatDate(today)}</p>
+        </div>
+    );
 
-export default function InversionesResumenPage() {
-    const [investments, setInvestments] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        fetch('/api/investments')
-            .then((res) => res.ok ? res.json() : [])
-            .then((data) => setInvestments(Array.isArray(data) ? data : []))
-            .catch((error) => console.error('Error loading investments:', error))
-            .finally(() => setLoading(false));
-    }, []);
-
-    const formatCurrency = (amount) => {
-        return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
-    };
-
-    if (loading) {
-        return <div className="flex-center" style={{ minHeight: '400px' }}><div className="spinner"></div></div>;
-    }
-
-    if (investments.length === 0) {
+    if (!view.hasData) {
         return (
             <div className="page-container">
-                <div className="page-header">
-                    <h1 className="page-title">Resumen de inversiones</h1>
+                {header}
+                <div className="card">
+                    <EmptyState
+                        title="Aún no hay inversiones"
+                        text="Registra una aportación o el valor de un producto para ver aquí tu cartera."
+                        action={<Link href="/inversiones/registro" className="btn btn-primary">Registrar inversión</Link>}
+                    />
                 </div>
-                <div className="alert alert-info">No hay inversiones registradas todavía.</div>
             </div>
         );
     }
 
-    // Sort by account and date
-    const sorted = [...investments].sort((a, b) => {
-        if (a.account !== b.account) return a.account.localeCompare(b.account);
-        const dateA = parseAppDate(a.date) || new Date(0);
-        const dateB = parseAppDate(b.date) || new Date(0);
-        return dateA - dateB || a.id - b.id;
-    });
-
-    // Calculate cumulative contributions per account
-    const accountData = {};
-    sorted.forEach((inv) => {
-        if (!accountData[inv.account]) {
-            accountData[inv.account] = { totalContrib: 0, currentValue: 0, assetType: inv.asset_type };
-        }
-        accountData[inv.account].totalContrib += parseFloat(inv.contribution);
-        accountData[inv.account].currentValue = parseFloat(inv.current_value);
-    });
-
-    // Account summary with gain/return
-    const accountSummary = Object.entries(accountData).map(([account, data]) => ({
-        account,
-        assetType: data.assetType,
-        aportado: data.totalContrib,
-        valor: data.currentValue,
-        gain: data.currentValue - data.totalContrib,
-        returnPct: data.totalContrib !== 0 ? ((data.currentValue - data.totalContrib) / data.totalContrib) * 100 : 0,
-    }));
-
-    // Total KPIs
-    const totalAportado = accountSummary.reduce((sum, a) => sum + a.aportado, 0);
-    const totalValor = accountSummary.reduce((sum, a) => sum + a.valor, 0);
-    const totalGain = totalValor - totalAportado;
-    const totalReturn = totalAportado !== 0 ? (totalGain / totalAportado) * 100 : 0;
-
-    // Calculate portfolio weight per account
-    const accountsWithWeight = accountSummary
-        .map(a => ({ ...a, weight: totalValor > 0 ? (a.valor / totalValor) * 100 : 0 }))
-        .sort((a, b) => b.weight - a.weight);
-
-    // Portfolio Health Metrics
-    const uniqueAccounts = accountSummary.length;
-    const maxWeight = Math.max(...accountsWithWeight.map(a => a.weight));
-
-    const getDiversification = () => {
-        if (uniqueAccounts >= 5) return { level: 'high', label: 'Alta', desc: `${uniqueAccounts} activos diferentes` };
-        if (uniqueAccounts >= 3) return { level: 'medium', label: 'Media', desc: `${uniqueAccounts} activos` };
-        return { level: 'low', label: 'Baja', desc: `Solo ${uniqueAccounts} activo(s)` };
-    };
-
-    const getConcentrationRisk = () => {
-        if (maxWeight > 50) return { level: 'low', label: 'Alto riesgo', desc: `${maxWeight.toFixed(0)}% en un solo activo` };
-        if (maxWeight > 30) return { level: 'medium', label: 'Moderado', desc: `${maxWeight.toFixed(0)}% en mayor posición` };
-        return { level: 'high', label: 'Bajo riesgo', desc: 'Buena distribución' };
-    };
-
-    const diversification = getDiversification();
-    const concentration = getConcentrationRisk();
-
-    // Distribution by asset type
-    const byAssetType = {};
-    accountSummary.forEach(a => {
-        if (!byAssetType[a.assetType]) byAssetType[a.assetType] = 0;
-        byAssetType[a.assetType] += a.valor;
-    });
-    const assetTypeData = Object.entries(byAssetType)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value);
-
-    // Refresh keys
-    const assetTypeRefreshKey = assetTypeData.length > 0
-        ? assetTypeData.map(d => d.value.toFixed(0)).join('-')
-        : '0';
-
-    // Evolution data: contributions vs market value over time (Portfolio Wide)
-    // 1. Group events by date
-    const eventsByDate = {};
-    investments.forEach((inv) => {
-        const d = parseAppDate(inv.date);
-        if (!d) return;
-        const dateKey = localDateKey(d);
-
-        if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
-        eventsByDate[dateKey].push(inv);
-    });
-
-    // 2. Sort dates chronologically
-    const sortedDates = Object.keys(eventsByDate).sort((a, b) => new Date(a) - new Date(b));
-
-    // 3. Iterate dates to build cumulative state
-    const accountValues = {}; // map account -> current_value snapshot
-    let runningTotalContrib = 0;
-    const evolutionWithAccumulation = [];
-
-    sortedDates.forEach((date) => {
-        const daysEvents = eventsByDate[date].sort((a, b) => a.id - b.id);
-
-        daysEvents.forEach((inv) => {
-            // Add contribution (delta) to running total
-            runningTotalContrib += parseFloat(inv.contribution);
-
-            // Update latest value for this specific account
-            accountValues[inv.account] = parseFloat(inv.current_value);
-        });
-
-        // Calculate total portfolio value at this date
-        // Sum of latest known value of ALL accounts
-        const totalCurrentValue = Object.values(accountValues).reduce((sum, val) => sum + val, 0);
-
-        evolutionWithAccumulation.push({
-            date: date,
-            aportado: runningTotalContrib,
-            valor: totalCurrentValue
-        });
-    });
-
-    const evolutionRefreshKey = evolutionWithAccumulation.length;
-
-    // Distribution chart data
-    const distData = accountSummary.map((a) => ({ name: a.account, value: a.valor })).sort((a, b) => b.value - a.value);
-    const distRefreshKey = distData.length > 0
-        ? distData.slice(0, 6).map(d => d.value.toFixed(0)).join('-')
-        : '0';
+    const assetSlices = toSlices(view.byAssetType, 'Otros');
+    const openProducts = view.products.filter(p => !p.closed);
+    const tabs = WINDOW_OPTIONS.map(option => ({ href: windowHref(option.value), label: option.label, active: option.value === range.value }));
 
     return (
         <div className="page-container">
-            <div className="page-header">
-                <h1 className="page-title">Resumen de inversiones</h1>
-                <p className="page-subtitle">Vista general de tu cartera de inversión</p>
-            </div>
+            {header}
 
-            {/* Portfolio Health */}
-            <div className="status-header" style={{ marginBottom: 'var(--spacing-lg)' }}>
-                <div>
-                    <div className="status-header-title">Salud de la cartera</div>
-                    <div className="status-header-subtitle">Análisis de diversificación y riesgo</div>
-                </div>
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                    <div className="tooltip-container">
-                        <div className={`health-indicator ${diversification.level}`}>
-                            Diversificación: {diversification.label}
-                        </div>
-                        <div className="tooltip-content">{diversification.desc}</div>
+            {view.health && (
+                <div className="status-header" style={{ marginBottom: 'var(--spacing-lg)' }}>
+                    <div>
+                        <div className="status-header-title">Salud de la cartera</div>
+                        <div className="status-header-subtitle">Diversificación y concentración de las posiciones abiertas</div>
                     </div>
-                    <div className="tooltip-container">
-                        <div className={`health-indicator ${concentration.level}`}>
-                            Concentración: {concentration.label}
+                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                        <div className={`health-indicator ${view.health.diversification.level}`} title={view.health.diversification.desc}>
+                            Diversificación: {view.health.diversification.label} · {view.health.diversification.desc}
                         </div>
-                        <div className="tooltip-content">{concentration.desc}</div>
+                        <div className={`health-indicator ${view.health.concentration.level}`} title={view.health.concentration.desc}>
+                            Concentración: {view.health.concentration.label} · {view.health.concentration.desc}
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
-            {/* KPIs */}
             <div className="kpi-grid">
                 <div className="kpi-card-enhanced">
                     <div className="kpi-label">Capital aportado</div>
-                    <div className="kpi-value">{formatCurrency(totalAportado)}</div>
+                    <div className="kpi-value">{formatEuro(view.contributed)}</div>
+                    <div className={styles.kpiSub}>Aportaciones menos retiradas</div>
                 </div>
                 <div className="kpi-card-enhanced">
                     <div className="kpi-label">Valor actual</div>
-                    <div className="kpi-value">{formatCurrency(totalValor)}</div>
+                    <div className="kpi-value">{formatEuro(view.value)}</div>
+                    <div className={styles.kpiSub}>Último valor de cada producto</div>
                 </div>
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Plusvalía</div>
-                    <div className={`kpi-value ${totalGain >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>
-                        {formatCurrency(totalGain)}
-                    </div>
-                    <div className="kpi-trend">
-                        <span className={`trend ${totalGain >= 0 ? 'trend-up' : 'trend-down'}`}>
-                            {Math.abs(totalReturn).toFixed(1)}%
-                        </span>
+                    <div className="kpi-label">{view.gain >= 0 ? 'Plusvalía' : 'Minusvalía'}</div>
+                    <div className={`kpi-value ${view.gain >= 0 ? 'kpi-positive' : 'kpi-negative'}`}>{formatEuro(view.gain)}</div>
+                    <div className={styles.kpiSub}>
+                        Rentabilidad: {view.returnPct === null ? '—' : <span className={view.returnPct >= 0 ? styles.good : styles.bad}>{formatSignedPct(view.returnPct)}</span>}
                     </div>
                 </div>
                 <div className="kpi-card-enhanced">
-                    <div className="kpi-label">Nº de posiciones</div>
-                    <div className="kpi-value">{uniqueAccounts}</div>
+                    <div className="kpi-label">Posiciones abiertas</div>
+                    <div className="kpi-value">{view.positions}</div>
+                    {view.productCount > view.positions && (
+                        <div className={styles.kpiSub}>{view.productCount - view.positions} cerradas (valor 0 €)</div>
+                    )}
                 </div>
             </div>
 
-            {/* Charts Grid */}
-            <div className="grid grid-2 gap-lg">
-                <ChartContainer
-                    title="Distribución por tipo de activo"
-                    heightMobile={300}
-                    heightDesktop={280}
-                    className="chart-pie"
-                    refreshKey={assetTypeRefreshKey}
-                    render={({ width, height }) => {
-                        const size = Math.min(width, height);
-                        const outerR = size * 0.38;
-                        const innerR = size * 0.25;
-                        return (
-                            <PieChart width={width} height={height}>
-                                <Pie
-                                    data={assetTypeData}
-                                    cx={width / 2}
-                                    cy={height / 2}
-                                    innerRadius={innerR}
-                                    outerRadius={outerR}
-                                    dataKey="value"
-                                    labelLine={false}
-                                    label={renderPieLabel}
-                                >
-                                    {assetTypeData.map((_, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip content={<PieTooltip />} />
-                                <Legend
-                                    layout="horizontal"
-                                    verticalAlign="bottom"
-                                    align="center"
-                                    wrapperStyle={{ fontSize: '10px', paddingTop: '8px' }}
-                                />
-                            </PieChart>
-                        );
-                    }}
-                />
+            <p className={styles.note}>
+                Plusvalía = valor actual − capital aportado. Incluye lo ganado en posiciones ya cerradas.
+                {view.futureRecords > 0 && ` Hay ${view.futureRecords} ${view.futureRecords === 1 ? 'registro' : 'registros'} con fecha futura que aún no cuentan.`}
+            </p>
 
-                <ChartContainer
-                    title="Distribución por producto"
-                    heightMobile={300}
+            <div style={{ marginBottom: 'var(--spacing-lg)' }}>
+                <ChartFrame
+                    title="Valor frente a capital aportado"
+                    subtitle="A fin de cada mes; el último punto es hoy. La distancia entre las dos líneas es la plusvalía."
+                    actions={<PeriodTabs label="Periodo de la evolución" options={tabs} />}
+                    heightMobile={240}
                     heightDesktop={280}
-                    className="chart-bar"
-                    refreshKey={distRefreshKey}
-                    render={({ width, height, isMobile }) => (
-                        <BarChart
-                            width={width}
-                            height={height}
-                            data={distData.slice(0, 6)}
-                            layout="vertical"
-                            margin={{ left: 5, right: 15, top: 5, bottom: 5 }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                            <XAxis
-                                type="number"
-                                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-                                tick={{ fontSize: 10 }}
-                            />
-                            <YAxis
-                                type="category"
-                                dataKey="name"
-                                width={isMobile ? 60 : 70}
-                                tick={{ fontSize: isMobile ? 9 : 10 }}
-                                tickFormatter={(v) => v.length > (isMobile ? 10 : 12) ? v.substring(0, isMobile ? 10 : 12) + '…' : v}
-                            />
-                            <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
-                            <Bar dataKey="value" fill="#3B82F6" radius={[0, 4, 4, 0]} maxBarSize={30} />
-                        </BarChart>
-                    )}
-                />
+                    legend={<ChartLegend inline items={[{ name: 'Valor', color: SERIES.value, shape: 'line' }, { name: 'Capital aportado', color: SERIES.contributed, shape: 'dashed' }]} />}
+                >
+                    {view.series.length > 1
+                        ? <LazyEvolutionChart variant="inversiones" data={view.series} />
+                        : <div className={styles.empty}>Con datos de un solo mes aún no hay evolución que mostrar.</div>}
+                </ChartFrame>
             </div>
 
-            {/* Evolution Chart - Dual Line */}
-            {evolutionWithAccumulation.length > 1 && (
-                <ChartContainer
-                    title="Evolución: Aportaciones vs Valor"
-                    heightMobile={280}
-                    heightDesktop={260}
-                    className="chart-line"
-                    refreshKey={evolutionRefreshKey}
-                    render={({ width, height, isMobile }) => (
-                        <LineChart
-                            width={width}
-                            height={height}
-                            data={evolutionWithAccumulation}
-                            margin={{ left: 0, right: isMobile ? 10 : 20, top: 10, bottom: 5 }}
-                        >
-                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                            <XAxis
-                                dataKey="date"
-                                tick={{ fontSize: 10 }}
-                                tickFormatter={(v) => v.substring(5)}
-                            />
-                            <YAxis
-                                tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
-                                tick={{ fontSize: 10 }}
-                                width={40}
-                            />
-                            <Tooltip content={<CustomTooltip formatter={formatCurrency} />} />
-                            <Legend
-                                wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
-                            />
-                            <Line
-                                type="monotone"
-                                dataKey="aportado"
-                                stroke="#6B7280"
-                                strokeWidth={2}
-                                dot={false}
-                                name="Aportado"
-                            />
-                            <Line
-                                type="monotone"
-                                dataKey="valor"
-                                stroke="#3B82F6"
-                                strokeWidth={2}
-                                dot={false}
-                                name="Valor"
-                            />
-                        </LineChart>
+            <div className={styles.grid}>
+                <ChartFrame
+                    title="Por tipo de activo"
+                    heightMobile={220}
+                    heightDesktop={220}
+                    overlay={(
+                        <div className={styles.center}>
+                            <span className={styles.centerLabel}>Valor</span>
+                            <span className={styles.centerValue}>{formatEuro(view.value)}</span>
+                        </div>
                     )}
-                />
-            )}
+                    legend={<ChartLegend items={assetSlices} label="Leyenda: por tipo de activo" />}
+                >
+                    {assetSlices.length > 0
+                        ? <LazyDonutChart data={assetSlices} />
+                        : <div className={styles.empty}>Todas las posiciones están cerradas.</div>}
+                </ChartFrame>
 
-            {evolutionWithAccumulation.length > 1 && (
-                <p className="text-muted text-sm mt-sm" style={{ marginBottom: '2rem' }}>
-                    {totalGain >= 0
-                        ? `📈 Plusvalía: ${formatCurrency(totalGain)}`
-                        : `📉 Minusvalía: ${formatCurrency(Math.abs(totalGain))}`
-                    }
-                </p>
-            )}
+                <ChartFrame title="Por producto" boxHeight={false}>
+                    {openProducts.length > 0
+                        ? <BarList items={openProducts.map(p => ({ key: p.account, label: p.account, value: p.value, color: SERIES.value, meta: p.weightPct === null ? null : formatPct(p.weightPct, 0) }))} />
+                        : <p className="text-muted">Todas las posiciones están cerradas.</p>}
+                </ChartFrame>
+            </div>
 
-            {/* Detail Table with Weight */}
             <div className="card">
-                <div className="card-header"><h3>Detalle por cuenta</h3></div>
+                <div className="card-header"><h3>Detalle por producto</h3></div>
                 <div className="card-body">
                     <div className="table-container">
                         <table className="table">
                             <thead>
                                 <tr>
-                                    <th>Cuenta</th>
+                                    <th>Producto</th>
                                     <th>Tipo</th>
-                                    <th>Peso cartera</th>
-                                    <th>Aportado</th>
-                                    <th>Valor actual</th>
-                                    <th>Plusvalía</th>
-                                    <th>Rentabilidad</th>
+                                    <th style={{ textAlign: 'right' }}>Peso</th>
+                                    <th style={{ textAlign: 'right' }}>Capital aportado</th>
+                                    <th style={{ textAlign: 'right' }}>Valor actual</th>
+                                    <th style={{ textAlign: 'right' }}>Plusvalía</th>
+                                    <th style={{ textAlign: 'right' }}>Rentabilidad</th>
+                                    <th>Último dato</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {accountsWithWeight.map((a) => (
-                                    <tr key={a.account}>
-                                        <td className="font-semibold">{a.account}</td>
-                                        <td><span className="badge badge-primary">{a.assetType}</span></td>
-                                        <td>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                                <div className="progress" style={{ width: '60px', height: '6px' }}>
-                                                    <div
-                                                        className="progress-bar"
-                                                        style={{ width: `${a.weight}%` }}
-                                                    />
-                                                </div>
-                                                <span>{a.weight.toFixed(1)}%</span>
-                                            </div>
+                                {view.products.map(p => (
+                                    <tr key={p.account}>
+                                        <td className="font-semibold">{p.account}{p.closed && <span className="text-muted"> (cerrada)</span>}</td>
+                                        <td><span className="badge" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>{p.assetType}</span></td>
+                                        <td style={{ textAlign: 'right' }}>{p.weightPct === null ? '—' : formatPct(p.weightPct)}</td>
+                                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{formatEuro(p.contributed)}</td>
+                                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{formatEuro(p.value)}</td>
+                                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} className={p.gain >= 0 ? styles.good : styles.bad}>{formatEuro(p.gain)}</td>
+                                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                            {p.returnPct === null ? <span className="text-muted">—</span> : <span className={p.returnPct >= 0 ? styles.good : styles.bad}>{formatSignedPct(p.returnPct)}</span>}
                                         </td>
-                                        <td>{formatCurrency(a.aportado)}</td>
-                                        <td>{formatCurrency(a.valor)}</td>
-                                        <td className={a.gain >= 0 ? 'text-success' : 'text-danger'}>
-                                            {formatCurrency(a.gain)}
-                                        </td>
-                                        <td className={a.returnPct >= 0 ? 'text-success' : 'text-danger'}>
-                                            <span className={`trend ${a.returnPct >= 0 ? 'trend-up' : 'trend-down'}`}>
-                                                {Math.abs(a.returnPct).toFixed(1)}%
-                                            </span>
-                                        </td>
+                                        <td style={{ whiteSpace: 'nowrap' }}>{formatDate(p.date)}</td>
                                     </tr>
                                 ))}
                             </tbody>

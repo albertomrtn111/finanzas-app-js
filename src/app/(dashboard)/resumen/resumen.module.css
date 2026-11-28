@@ -1,0 +1,10 @@
+/* Resumen (Tarea NF-20). */
+/* Los controles se colocan dentro de .header-controls (globals.css) como si fueran hijos directos. */
+.controls { display: contents; }
+.busy { font-size: 0.8125rem; color: var(--text-tertiary); min-width: 5.5rem; opacity: 0; transition: opacity var(--transition-fast); }
+.busyOn { opacity: 1; }
+@media (max-width: 639px) { .busy { min-height: 0; } .busy:empty { display: none; } }
+
+.trendText { font-size: 0.875rem; color: var(--text-tertiary); }
+.trendGood { font-size: 0.875rem; font-weight: 500; color: var(--success-text); }
+.trendBad { font-size: 0.875rem; font-weight: 500; color: var(--danger-text); }
