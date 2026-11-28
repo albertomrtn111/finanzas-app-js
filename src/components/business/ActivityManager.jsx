@@ -73,9 +73,11 @@ export default function ActivityManager({ view = 'all' }) {
         finally { setSaving(false); }
     };
     const remove = async item => {
-        if (!window.confirm(`¿Eliminar «${item.description}»?`)) return;
+        const files = item.attachments?.length || 0;
+        const warning = files ? ` También se borrará${files === 1 ? ' su documento adjunto' : `n sus ${files} documentos adjuntos`} y no se podrá${files === 1 ? '' : 'n'} recuperar. Descárga${files === 1 ? 'lo' : 'los'} antes si quieres conservar${files === 1 ? 'lo' : 'los'}.` : '';
+        if (!window.confirm(`¿Eliminar «${item.description}»?${warning}`)) return;
         setMessage(''); setSuccess('');
-        try { await businessRequest(`/api/businesses/${businessId}/activities?id=${item.id}`, { method: 'DELETE' }); await refresh(); setSuccess('Operación eliminada.'); }
+        try { await businessRequest(`/api/businesses/${businessId}/activities?id=${item.id}${files ? '&adjuntos=borrar' : ''}`, { method: 'DELETE' }); await refresh(); setSuccess('Operación eliminada.'); }
         catch (cause) { setMessage(cause.message); }
     };
 
@@ -108,7 +110,11 @@ export default function ActivityManager({ view = 'all' }) {
                     </div>)}
                 </div>
                 <div className="form-group"><label className="form-label" htmlFor="withholding">Retención %</label><input id="withholding" type="number" min="0" max="100" step="0.01" className="form-input" value={form.withholding_rate} onChange={e => setForm({ ...form, withholding_rate: e.target.value })} /></div>
-                <div className="form-group"><label className="form-label" htmlFor="file">Adjuntar factura o justificante</label><input id="file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="form-input" onChange={e => setFile(e.target.files?.[0] || null)} /><small>PDF o imagen, máximo 5 MB.</small></div>
+                <div className="form-group"><label className="form-label" htmlFor="file">Adjuntar factura o justificante</label><input id="file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" className="form-input" onChange={e => {
+                    const picked = e.target.files?.[0] || null;
+                    if (picked && picked.size > 5 * 1024 * 1024) { setMessage('El archivo supera el máximo de 5 MB'); e.target.value = ''; setFile(null); return; }
+                    setFile(picked);
+                }} /><small>PDF o imagen, máximo 5 MB.</small></div>
                 {!preview.error && <div className="business-full business-total-preview">Base {euro(preview.value.base_amount)} · IVA {euro(preview.value.vat_amount)} · Total {euro(preview.value.total_amount)}</div>}
                 {message && <div className="alert alert-danger business-full" role="alert">{message}</div>}
                 {success && <div className="alert alert-success business-full" role="status">{success}</div>}

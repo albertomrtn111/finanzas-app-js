@@ -45,7 +45,7 @@ npx prisma validate
 - El líquido usa el saldo inicial más los movimientos reales hasta hoy. El resultado de gestión usa los ingresos y gastos incurridos del mes; los gastos incluyen el IVA que se haya marcado como no deducible. Los cobros y pagos se enlazan a operaciones sin volver a contarlos como nuevos ingresos o gastos.
 - La previsión suma pendientes con vencimiento y planes futuros abiertos. Al registrar un plan como movimiento, márcalo como realizado para evitar duplicarlo en la previsión.
 - El registro de IVA cubre el régimen general y operaciones interiores, exentas o no sujetas introducidas manualmente. Muestra un resumen orientativo y exporta el detalle en CSV; no presenta declaraciones ni emite facturas. Los regímenes especiales, operaciones intracomunitarias, inversión del sujeto pasivo y facturas rectificativas necesitan reglas adicionales antes de considerarse cubiertos.
-- Los adjuntos PDF o imagen de hasta 5 MB se guardan en PostgreSQL y solo se descargan tras comprobar la titularidad de la empresa.
+- Los adjuntos PDF o imagen de hasta 5 MB se guardan en PostgreSQL y solo se descargan tras comprobar la titularidad de la empresa. Los envíos de más de 5 MB se rechazan antes de leerlos. Cada usuario tiene 200 MB para documentos, sumando todas sus empresas (`ATTACHMENT_QUOTA_MB` lo cambia). Los nombres conservan tildes y símbolos, y se descargan con cualquier nombre. Borrar una operación con documentos exige confirmarlo (`?adjuntos=borrar`), porque los documentos se borran con ella.
 
 ## MCP para la IA
 
