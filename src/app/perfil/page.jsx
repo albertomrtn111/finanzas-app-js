@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import McpAccess from '@/components/McpAccess';
+import SecuritySettings from '@/components/SecuritySettings';
 
 export default function PerfilPage({ businessContext = false }) {
     const { update: updateSession } = useSession();
@@ -155,7 +156,7 @@ export default function PerfilPage({ businessContext = false }) {
         <div className="page-container">
             <div className="page-header">
                 <h1 className="page-title">Mi Perfil</h1>
-                <p className="page-subtitle">Gestiona tu acceso, cambia de espacio financiero y conecta tu IA</p>
+                <p className="page-subtitle">Gestiona tu acceso y tu seguridad, cambia de espacio financiero y conecta tu IA</p>
             </div>
 
             <div className="card business-spaced"><div className="card-header"><h2>Espacios financieros</h2></div><div className="card-body business-list">
@@ -170,6 +171,8 @@ export default function PerfilPage({ businessContext = false }) {
             </div></div>
 
             <McpAccess />
+
+            <SecuritySettings hasPassword={profile.hasPassword} />
 
             <div className="grid grid-2 gap-lg">
                 {/* Profile Info Card */}
@@ -224,28 +227,6 @@ export default function PerfilPage({ businessContext = false }) {
                                     cursor: 'not-allowed'
                                 }}
                             />
-                        </div>
-
-                        {/* Password */}
-                        <div className="form-group">
-                            <label className="form-label">Contraseña</label>
-                            <input
-                                type="password"
-                                className="form-input"
-                                value={profile.authMethod === 'google' ? '' : '••••••••'}
-                                disabled
-                                placeholder={profile.authMethod === 'google' ? 'Gestionada por Google' : ''}
-                                style={{
-                                    background: 'var(--bg-secondary)',
-                                    color: 'var(--text-secondary)',
-                                    cursor: 'not-allowed'
-                                }}
-                            />
-                            {profile.authMethod === 'google' && (
-                                <small style={{ color: 'var(--text-muted)', marginTop: '0.25rem', display: 'block' }}>
-                                    🔒 Gestionada por Google
-                                </small>
-                            )}
                         </div>
 
                         {message.text && (
