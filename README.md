@@ -32,7 +32,7 @@ npx prisma validate
 1. Vacía la base de datos de `DATABASE_URL` y aplica las migraciones.
 2. Crea dos usuarios con empresa y un acceso MCP cada uno.
 3. Compila y arranca la app en un puerto libre.
-4. Ejecuta, una detrás de otra, todas las pruebas `test/*.integration.test.mjs`. Cubren el MCP, el aislamiento entre usuarios en el MCP y en la web, el acceso y los adjuntos.
+4. Ejecuta, una detrás de otra, todas las pruebas `test/*.integration.test.mjs`. Cubren el MCP, el aislamiento entre usuarios en el MCP y en la web, el acceso, los adjuntos y la exportación (ZIP con CSV y JSON).
 
 **Borra la base de datos entera.** Por eso solo acepta bases de datos locales, salvo que se indique `TEST_DATABASE_CONFIRM=borrar-todo`. Con Docker:
 
