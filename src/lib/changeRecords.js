@@ -17,6 +17,7 @@ export const ENTITIES = {
     business_cash_plan: { model: 'businessCashPlan', scope: 'business', label: 'previsión de empresa' },
     business_budget: { model: 'businessBudget', scope: 'business', label: 'presupuesto de empresa' },
     business_movement_links: { scope: 'business', label: 'vínculos de movimiento con facturas' },
+    classification_rule: { model: 'classificationRule', scope: 'user', label: 'regla de clasificación' },
 };
 
 // Desde dónde se hizo el cambio: la IA (servidor MCP) o la web.

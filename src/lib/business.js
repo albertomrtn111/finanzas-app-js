@@ -5,6 +5,8 @@ const AMOUNT_TEXT = /^[+-]?\d+(?:[.,]\d{1,2})?$/;
 const PERCENT_TEXT = /^\d{1,3}(?:[.,]\d{1,2})?$/;
 const VAT_PERIOD = /^\d{4}-Q[1-4]$/;
 const VAT_TREATMENTS = ['DOMESTIC', 'EXEMPT', 'NON_SUBJECT'];
+// Tipos de flujo de un movimiento de dinero de empresa (los traspasos aparte, con TRANSFER).
+export const FLOW_TYPES = ['OPERATING', 'INVESTING', 'FINANCING', 'TAX', 'OTHER'];
 
 // Texto decimal de un importe. Solo acepta números finitos, textos y Decimal de Prisma (valores ya
 // guardados); cualquier otra cosa (true, [5], {}, null) no es un importe.

@@ -42,6 +42,7 @@ model User {
   mcpTokens           McpToken[]
   changeLogs          ChangeLog[]
   importBatches       ImportBatch[]
+  classificationRules ClassificationRule[]
 
   @@map("users")
 }
@@ -214,6 +215,7 @@ model Business {
   attachments BusinessAttachment[]
   plans       BusinessCashPlan[]
   budgets     BusinessBudget[]
+  classificationRules ClassificationRule[]
 
   @@index([owner_user_id])
   @@map("businesses")
@@ -231,6 +233,7 @@ model BusinessAccount {
 
   business  Business           @relation(fields: [business_id], references: [id], onDelete: Cascade)
   movements BusinessMovement[]
+  classificationRules ClassificationRule[]
 
   @@unique([business_id, name])
   @@index([business_id])
@@ -438,4 +441,45 @@ model ImportBatch {
 
   @@index([user_id, created_at])
   @@map("import_batches")
+}
+
+// Reglas de clasificación de cada usuario (Tarea NF-4): a qué espacio y con qué categoría va un
+// movimiento según su comercio. Se aprenden solas de cada importación y corrección (origin LEARNED)
+// o las crea el usuario (MANUAL; el aprendizaje nunca las cambia). preparar_importacion las usa
+// antes que el historial. Las reglas puras están en src/lib/classificationRules.js.
+//   - merchant_key: clave del comercio (merchantKey de src/lib/mcp/importing.js); "" si solo hay pattern.
+//   - pattern: texto que tiene que contener el concepto, normalizado; "" si no hay.
+//   - direction: OUT (sale dinero) o IN (entra). destination: EXPENSE, INCOME o BUSINESS.
+// Sin nulos en la clave única: así no puede haber dos reglas para el mismo comercio y sentido.
+model ClassificationRule {
+  id             Int       @id @default(autoincrement())
+  user_id        Int
+  direction      String    @db.VarChar(8)
+  merchant_key   String    @default("") @db.VarChar(120)
+  pattern        String    @default("") @db.VarChar(120)
+  destination    String    @db.VarChar(16)
+  business_id    Int?
+  account_id     Int?
+  flow_type      String?   @db.VarChar(16)
+  category       String?   @db.VarChar(100)
+  subcategory    String?   @db.VarChar(100)
+  payment_method String?   @db.VarChar(50)
+  expense_type   String?   @db.VarChar(50)
+  source         String?   @db.VarChar(150)
+  origin         String    @default("LEARNED") @db.VarChar(8)
+  hits           Int       @default(0)
+  example        String?   @db.VarChar(240)
+  last_used_at   DateTime?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @default(now()) @updatedAt
+
+  user     User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  // Si se borra la empresa, sus reglas se van con ella; si se borra la cuenta, la regla se queda sin cuenta.
+  business Business?        @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  account  BusinessAccount? @relation(fields: [account_id], references: [id], onDelete: SetNull)
+
+  @@unique([user_id, direction, merchant_key, pattern], map: "classification_rules_match_key")
+  @@index([business_id])
+  @@index([account_id])
+  @@map("classification_rules")
 }
