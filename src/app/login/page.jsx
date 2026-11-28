@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { getProviders, signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function LoginPage() {
     const [email, setEmail] = useState('');
@@ -37,7 +38,7 @@ export default function LoginPage() {
             if (result?.error) {
                 setError(result.error);
             } else {
-                router.push('/resumen');
+                router.push('/');
                 router.refresh();
             }
         } catch (err) {
@@ -49,17 +50,17 @@ export default function LoginPage() {
 
     const handleGoogleSignIn = () => {
         setGoogleLoading(true);
-        signIn('google', { callbackUrl: '/resumen' });
+        signIn('google', { callbackUrl: '/' });
     };
 
     return (
         <div className="auth-container">
             <div className="auth-card">
                 <div className="auth-logo">
-                    <span style={{ fontSize: '2.5rem' }}>💰</span>
+                    <Image src="/NextFinance.png" alt="" width={48} height={48} priority style={{ borderRadius: '12px' }} />
                 </div>
-                <h1 className="auth-title">Finanzas Personales</h1>
-                <p className="auth-subtitle">Inicia sesión para gestionar tus finanzas</p>
+                <h1 className="auth-title">NextFinance</h1>
+                <p className="auth-subtitle">Inicia sesión para ver y gestionar tus finanzas</p>
 
                 {error && (
                     <div className="alert alert-danger">

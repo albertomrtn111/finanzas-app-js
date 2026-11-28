@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function RegisterPage() {
     const [name, setName] = useState('');
@@ -77,9 +78,9 @@ export default function RegisterPage() {
         <div className="auth-container">
             <div className="auth-card">
                 <div className="auth-logo">
-                    <span style={{ fontSize: '2.5rem' }}>💰</span>
+                    <Image src="/NextFinance.png" alt="" width={48} height={48} priority style={{ borderRadius: '12px' }} />
                 </div>
-                <h1 className="auth-title">Crear cuenta</h1>
+                <h1 className="auth-title">Crea tu cuenta en NextFinance</h1>
                 <p className="auth-subtitle">Regístrate para empezar a gestionar tus finanzas</p>
 
                 {error && (

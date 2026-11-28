@@ -37,7 +37,7 @@
 
 /* En el móvil la ventana se abre arriba: queda sitio para el teclado. */
 @media (max-width: 768px) {
-  .dialog { margin-top: max(12px, env(safe-area-inset-top, 0px)); }
+  :global(dialog).dialog { margin-top: max(12px, env(safe-area-inset-top, 0px)); }
 }
 
 /* ---------- Formulario ---------- */

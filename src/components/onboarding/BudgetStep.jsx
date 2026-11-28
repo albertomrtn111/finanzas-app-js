@@ -1,6 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { AmountInput } from '@/components/ui';
+import { amountToInput, parseAmountInput } from '@/lib/amount';
+
+// Importe del campo en euros (0 si está vacío o no es válido), solo para el total orientativo.
+const budgetValue = text => {
+    if (!String(text || '').trim()) return 0;
+    const parsed = parseAmountInput(text, { allowZero: true });
+    return parsed.value ? Number(parsed.value) : 0;
+};
 
 export default function BudgetStep() {
     const [categories, setCategories] = useState([]);
@@ -27,13 +36,13 @@ export default function BudgetStep() {
                 const budgetMap = {};
                 if (Array.isArray(budData)) {
                     budData.forEach(b => {
-                        budgetMap[b.category] = parseFloat(b.monthly_amount) || 0;
+                        budgetMap[b.category] = Number(b.monthly_amount) ? amountToInput(b.monthly_amount) : '';
                     });
                 }
                 setBudgets(budgetMap);
             }
-        } catch (error) {
-            console.error('Error loading data:', error);
+        } catch {
+            setMessage({ type: 'error', text: 'No se pudieron cargar tus categorías y presupuestos. Recarga la página para reintentarlo.' });
         }
         setLoading(false);
     }, []);
@@ -44,20 +53,22 @@ export default function BudgetStep() {
     }, [loadData]);
 
     const handleChange = (category, value) => {
-        setBudgets(prev => ({
-            ...prev,
-            [category]: value === '' ? '' : parseFloat(value) || 0
-        }));
+        setBudgets(prev => ({ ...prev, [category]: value }));
     };
 
     const handleSave = async () => {
+        const entries = [];
+        for (const cat of categories) {
+            const text = String(budgets[cat.name] || '').trim();
+            const parsed = text ? parseAmountInput(text, { allowZero: true, label: `El presupuesto de ${cat.name}` }) : { value: '0' };
+            if (parsed.error) {
+                setMessage({ type: 'error', text: parsed.error });
+                return;
+            }
+            entries.push({ category: cat.name, monthly_amount: parsed.value });
+        }
         setSaving(true);
         try {
-            // Prepare budget entries
-            const entries = categories.map(cat => ({
-                category: cat.name,
-                monthly_amount: budgets[cat.name] || 0
-            }));
 
             const res = await fetch('/api/budgets', {
                 method: 'POST',
@@ -77,7 +88,7 @@ export default function BudgetStep() {
         setSaving(false);
     };
 
-    const totalBudget = Object.values(budgets).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+    const totalBudget = Object.values(budgets).reduce((sum, val) => sum + budgetValue(val), 0);
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -142,18 +153,15 @@ export default function BudgetStep() {
 
             {/* Budget form */}
             <div className="budget-form">
-                {categories.map(cat => (
+                {categories.map((cat, index) => (
                     <div key={cat.name} className="budget-row">
-                        <label className="budget-label">{cat.name}</label>
+                        <label className="budget-label" htmlFor={`presupuesto-${index}`}>{cat.name}</label>
                         <div className="budget-input-wrapper">
-                            <input
-                                type="number"
-                                className="form-input"
+                            <AmountInput
+                                id={`presupuesto-${index}`}
                                 placeholder="0"
-                                min="0"
-                                step="10"
                                 value={budgets[cat.name] || ''}
-                                onChange={(e) => handleChange(cat.name, e.target.value)}
+                                onChange={value => handleChange(cat.name, value)}
                             />
                             <span className="budget-currency">€/mes</span>
                         </div>

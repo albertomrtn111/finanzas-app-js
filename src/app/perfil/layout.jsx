@@ -5,6 +5,8 @@ import Sidebar from '@/components/Sidebar';
 import BusinessSidebar from '@/components/business/BusinessSidebar';
 import prisma from '@/lib/db';
 
+export const metadata = { title: 'Mi perfil' };
+
 export default async function PerfilLayout({ children }) {
     const session = await getServerSession(authOptions);
 
