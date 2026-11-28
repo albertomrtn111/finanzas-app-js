@@ -17,6 +17,7 @@ const ITEMS = [
     ['flujo', 'Flujo y previsión', '📈'],
     ['presupuestos', 'Presupuestos', '🎯'],
     ['iva', 'IVA', '🧮'],
+    ['reglas', 'Reglas de clasificación', '🧭'],
     ['configuracion', 'Configuración', '⚙️'],
 ];
 

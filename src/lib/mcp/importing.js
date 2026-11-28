@@ -25,9 +25,16 @@ export function conceptTokens(text) {
     return [...new Set(normalizeConcept(text).split(' ').filter(token => token.length > 1 && !NOISE.has(token)))];
 }
 
-// Clave corta del comercio o contraparte: las dos primeras palabras significativas.
+// Clave corta del comercio o contraparte: las dos primeras palabras significativas, como mucho
+// 120 caracteres (lo que cabe en la regla de clasificación, aunque el concepto traiga una palabra enorme).
+export const MAX_MERCHANT_KEY = 120;
+
+export function keyFromTokens(tokens) {
+    return tokens.slice(0, 2).join(' ').slice(0, MAX_MERCHANT_KEY).trim();
+}
+
 export function merchantKey(text) {
-    return conceptTokens(text).slice(0, 2).join(' ');
+    return keyFromTokens(conceptTokens(text));
 }
 
 export function similarity(a, b) {

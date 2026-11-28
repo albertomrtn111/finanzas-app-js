@@ -1,9 +1,9 @@
 // Reglas de los movimientos de dinero de empresa, compartidas por la API y el MCP.
 import { randomUUID } from 'node:crypto';
 import prisma, { Prisma } from './db.js';
-import { appDate, cents, cleanText, money, todayInMadrid } from './business.js';
+import { FLOW_TYPES, appDate, cents, cleanText, money, todayInMadrid } from './business.js';
 
-export const FLOW_TYPES = ['OPERATING', 'INVESTING', 'FINANCING', 'TAX', 'OTHER'];
+export { FLOW_TYPES };
 
 function validId(value) {
     const id = Number(value);

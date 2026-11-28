@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requirePersonalUser } from '@/lib/session';
-import { createLogged, deleteLogged, ensureCategoryLogged, updateLogged, webContext } from '@/lib/changeLog';
+import { createLogged, deleteLogged, ensureCategoryLogged, webContext } from '@/lib/changeLog';
+import { updatePersonalAndLearn } from '@/lib/classificationRuleStore';
 import prisma from '@/lib/db';
 import { parseFinancialRecord, parseId, parsePagination } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -71,12 +72,13 @@ export async function PUT(request) {
         const { value, error } = parseFinancialRecord('income', data);
         if (error) return badRequest(error);
 
+        // Si cambia la clasificación, se aprende la regla del comercio (en el mismo lote que la edición).
         const change = webContext(userId, 'ingresos:editar');
         const income = await prisma.$transaction(async (tx) => {
-            const updated = await updateLogged(tx, change, 'income', { id, user_id: userId }, value);
-            if (!updated) return null;
-            await ensureCategoryLogged(tx, change, 'income', value.category);
-            return updated;
+            const result = await updatePersonalAndLearn(tx, change, 'income', { id, user_id: userId }, value);
+            if (!result) return null;
+            await ensureCategoryLogged(tx, result.ctx, 'income', value.category);
+            return result.record;
         });
 
         if (!income) {

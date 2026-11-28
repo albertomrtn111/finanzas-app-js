@@ -1,0 +1,76 @@
+/* Reglas de clasificación (Tarea NF-4), en lo personal y en cada empresa. Usa los tokens de :root (globals.css), así que respeta el modo oscuro. */
+
+.headerRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-sm) var(--spacing-md);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.search {
+  flex: 1 1 240px;
+  margin-bottom: 0;
+}
+
+.filter {
+  flex: 0 1 200px;
+  margin-bottom: 0;
+}
+
+.secondary {
+  display: block;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  overflow-wrap: break-word;
+}
+
+.merchant {
+  font-weight: 600;
+  overflow-wrap: break-word;
+}
+
+.numeric {
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--spacing-xs);
+}
+
+.learned {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--spacing-md);
+}
+
+@media (max-width: 520px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+}
+
+/* En pantallas medianas la columna del comercio no se estrecha tanto que parta palabras. */
+@media (min-width: 641px) {
+  .merchantCell { min-width: 11rem; }
+}

@@ -3,6 +3,7 @@
 import prisma from './db.js';
 import { saveAllocations } from './businessMovements.js';
 import { ENTITIES, SOURCES, newBatchId, planBudgetReplacement, sameRecord, snapshot, webContext, withoutRelations } from './changeRecords.js';
+import { planRuleRevert } from './classificationRules.js';
 
 export { ENTITIES, SOURCES, newBatchId, planBudgetReplacement, sameRecord, snapshot, webContext, withoutRelations };
 
@@ -91,6 +92,7 @@ function scopeWhere(entry, config, id) {
     return config.scope === 'user' ? { id, user_id: entry.user_id } : { id, business_id: entry.business_id };
 }
 
+// Renombrar una categoría cambia también sus movimientos, presupuestos y reglas de clasificación.
 async function renameCategory(tx, userId, type, from, to) {
     if (type === 'income') {
         await tx.incomeCategory.updateMany({ where: { user_id: userId, name: from }, data: { name: to } });
@@ -100,6 +102,7 @@ async function renameCategory(tx, userId, type, from, to) {
         await tx.expense.updateMany({ where: { user_id: userId, category: from }, data: { category: to } });
         await tx.budget.updateMany({ where: { user_id: userId, category: from }, data: { category: to } });
     }
+    await tx.classificationRule.updateMany({ where: { user_id: userId, destination: type === 'income' ? 'INCOME' : 'EXPENSE', category: from }, data: { category: to } });
 }
 
 export { renameCategory };
@@ -117,7 +120,31 @@ async function assertNothingLinked(tx, entry, id) {
     }
 }
 
+// Reglas de clasificación: lo aprendido nunca bloquea el deshacer de una importación o corrección
+// (src/lib/classificationRules.js, planRuleRevert).
+async function revertRuleEntry(tx, entry, force) {
+    const where = { id: entry.entity_id, user_id: entry.user_id };
+    const current = await tx.classificationRule.findFirst({ where });
+    const plan = planRuleRevert(entry, current, force);
+    if (plan.op === 'delete') await tx.classificationRule.deleteMany({ where });
+    if (plan.op === 'update') await tx.classificationRule.update({ where: { id: current.id }, data: plan.data });
+    if (plan.op === 'create') {
+        const data = plan.data;
+        if (data.destination === 'BUSINESS') {
+            const owned = await tx.business.findFirst({ where: { id: data.business_id ?? -1, owner_user_id: entry.user_id }, select: { id: true } });
+            if (!owned) throw new Error(`La empresa de la regla ${entry.entity_id} ya no existe`);
+            const account = data.account_id ? await tx.businessAccount.findFirst({ where: { id: data.account_id, business_id: owned.id }, select: { id: true } }) : null;
+            if (!account) data.account_id = null;
+        }
+        const other = await tx.classificationRule.findFirst({ where: { user_id: entry.user_id, direction: data.direction, merchant_key: data.merchant_key, pattern: data.pattern }, select: { id: true } });
+        if (other) throw new Error(`Ya hay otra regla para ese comercio y sentido (regla ${other.id}); bórrala antes de recuperar la ${entry.entity_id}`);
+        await tx.classificationRule.create({ data });
+    }
+    return plan.message;
+}
+
 async function revertEntry(tx, entry, force) {
+    if (entry.entity === 'classification_rule') return revertRuleEntry(tx, entry, force);
     const config = ENTITIES[entry.entity];
     if (!config) throw new Error(`No sé deshacer cambios de tipo ${entry.entity}`);
     if (config.scope === 'business') {

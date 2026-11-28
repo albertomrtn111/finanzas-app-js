@@ -214,6 +214,7 @@ test('MCP de extremo a extremo', { skip }, async t => {
         assert.equal(imported.importadas, 2);
         assert.deepEqual(imported.omitidas.map(o => o.fila), [1, 3]);
         assert.match(imported.lote, /^importacion-/);
+        assert.deepEqual(imported.aprendido, { reglas_creadas: 2, reglas_actualizadas: 0 });
         const netflix = await call(client, 'buscar_movimientos_personales', { tipo: 'gasto', texto: 'netflix' });
         assert.equal(netflix.gastos.registros[0].amount, '12.3');
         assert.equal(netflix.gastos.registros[0].notes, 'NETFLIX.COM');
@@ -234,7 +235,8 @@ test('MCP de extremo a extremo', { skip }, async t => {
         assert.equal(list[0].importadas, 2);
 
         const undo = await call(client, 'deshacer_cambio', { lote: imported.lote });
-        assert.equal(undo.reverted.length, 3);
+        // Gasto, categoría nueva y cobro de empresa, más las dos reglas aprendidas (Netflix y Cliente SL).
+        assert.equal(undo.reverted.length, 5);
         const after = await call(client, 'ver_importaciones', { lote: imported.lote });
         assert.equal(after[0].estado, 'deshecha');
         const reopened = await call(client, 'buscar_operaciones_empresa', { empresa_id: empresaId, solo_pendientes: true });

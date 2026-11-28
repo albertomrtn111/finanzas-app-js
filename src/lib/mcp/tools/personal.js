@@ -4,6 +4,7 @@ import { parseFinancialRecord } from '../../apiValidation.js';
 import { netWorth, toMcpSummary } from '../analysis.js';
 import { loadPersonalSummary } from '../../personalSummaryData.js';
 import { logChange, renameCategory } from '../changeLog.js';
+import { updatePersonalAndLearn } from '../../classificationRuleStore.js';
 import { dateKey } from '../serialize.js';
 import {
     DELETE, READ, ToolError, WRITE, amountText, dateFilter, defineTool, fecha, id, importe, requirePersonal, todayMadrid,
@@ -165,7 +166,7 @@ export function registerPersonalTools(server, ctx) {
 
     defineTool(server, ctx, 'guardar_movimiento_personal', {
         title: 'Crear o editar un gasto o ingreso personal',
-        description: 'Sin id crea el registro; con id edita solo los campos indicados. Si la categoría no existe, se crea. Importes siempre positivos. Antes de crear, confirma con el usuario los datos y que no esté ya registrado.',
+        description: 'Sin id crea el registro; con id edita solo los campos indicados. Si la categoría no existe, se crea. Importes siempre positivos. Antes de crear, confirma con el usuario los datos y que no esté ya registrado. Si al editar cambias la categoría, subcategoría, método de pago o tipo de gasto (Fijo o Variable) de un movimiento con concepto en las notas, se aprende la regla de clasificación de ese comercio (salvo que mande una regla manual) y la corrección y lo aprendido van en un lote.',
         input: {
             tipo: tipoMovimiento, id: id.optional(), date: fecha.optional(), amount: importe.optional(),
             category: z.string().max(100).optional(),
@@ -185,16 +186,31 @@ export function registerPersonalTools(server, ctx) {
         if (recordId && !existing) throw new ToolError(`No existe el ${tipo} ${recordId}`);
         const value = recordInput(kind, fields, existing ? { ...existing } : {});
         return prisma.$transaction(async tx => {
-            const category = await tx[categoryModel].findUnique({ where: { user_id_name: { user_id: c.userId, name: value.category } } });
-            if (!category) {
+            const ensureCategory = async change => {
+                const category = await tx[categoryModel].findUnique({ where: { user_id_name: { user_id: c.userId, name: value.category } } });
+                if (category) return;
                 const created = await tx[categoryModel].create({ data: { user_id: c.userId, name: value.category, created_at: new Date() } });
-                await logChange(tx, c, { entity: kind === 'expense' ? 'expense_category' : 'income_category', entityId: created.id, action: 'CREATE', after: created });
-            }
+                await logChange(tx, change, { entity: kind === 'expense' ? 'expense_category' : 'income_category', entityId: created.id, action: 'CREATE', after: created });
+            };
             if (existing) {
-                const updated = await tx[kind].update({ where: { id: existing.id }, data: value });
-                const log = await logChange(tx, c, { entity: kind, entityId: updated.id, action: 'UPDATE', before: existing, after: updated });
-                return { accion: 'editado', cambio: log.id, registro: updated };
+                // Una corrección de la clasificación enseña la regla de su comercio, en el mismo lote.
+                const result = await updatePersonalAndLearn(tx, c, kind, { id: existing.id, user_id: c.userId }, value);
+                if (!result) throw new ToolError(`No existe el ${tipo} ${recordId}`);
+                await ensureCategory(result.ctx);
+                return {
+                    accion: 'editado', cambio: result.log.id, registro: result.record,
+                    ...(result.batchId ? {
+                        lote: result.batchId,
+                        aprendido: { reglas_creadas: result.learned.creadas, reglas_actualizadas: result.learned.actualizadas },
+                        como_deshacer: `deshacer_cambio con lote «${result.batchId}» deshace la corrección y lo aprendido`,
+                    } : {}),
+                    ...(result.manualRule ? {
+                        regla_manual: result.manualRule,
+                        aviso: `La regla manual ${result.manualRule} manda para este comercio y no se ha cambiado. Si quieres que la próxima vez se proponga lo nuevo, edítala con gestionar_regla_clasificacion.`,
+                    } : {}),
+                };
             }
+            await ensureCategory(c);
             const created = await tx[kind].create({ data: { user_id: c.userId, ...value, created_at: new Date() } });
             const log = await logChange(tx, c, { entity: kind, entityId: created.id, action: 'CREATE', after: created });
             return { accion: 'creado', cambio: log.id, registro: created };
