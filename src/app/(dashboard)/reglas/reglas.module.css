@@ -30,12 +30,12 @@
   display: block;
   font-size: 0.8125rem;
   color: var(--text-muted);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .merchant {
   font-weight: 600;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .numeric {
@@ -68,4 +68,9 @@
   .actions {
     justify-content: flex-start;
   }
+}
+
+/* En pantallas medianas la columna del comercio no se estrecha tanto que parta palabras. */
+@media (min-width: 641px) {
+  .merchantCell { min-width: 11rem; }
 }

@@ -241,18 +241,25 @@ export default function ReglasPage() {
                                                 const what = classificationText(rule);
                                                 return (
                                                     <tr key={rule.id}>
-                                                        <th scope="row" data-label="Comercio">
-                                                            <span className={styles.merchant}>{merchantLabel(rule)}</span>
-                                                            {rule.merchant_key && rule.pattern && <span className={styles.secondary}>Si contiene «{rule.pattern}»</span>}
-                                                            {rule.example && <span className={styles.secondary}>{rule.example}</span>}
+                                                        <th scope="row" data-label="Comercio" className={styles.merchantCell}>
+                                                            {/* Un solo bloque por celda: en el móvil la fila es una rejilla etiqueta + contenido. */}
+                                                            <div>
+                                                                <span className={styles.merchant}>{merchantLabel(rule)}</span>
+                                                                {rule.merchant_key && rule.pattern && <span className={styles.secondary}>Si contiene «{rule.pattern}»</span>}
+                                                                {rule.example && <span className={styles.secondary}>{rule.example}</span>}
+                                                            </div>
                                                         </th>
                                                         <td data-label="A dónde va">
-                                                            {where.main}
-                                                            {where.extra && <span className={styles.secondary}>{where.extra}</span>}
+                                                            <div>
+                                                                {where.main}
+                                                                {where.extra && <span className={styles.secondary}>{where.extra}</span>}
+                                                            </div>
                                                         </td>
                                                         <td data-label="Categoría">
-                                                            {what.main || '—'}
-                                                            {what.extra && <span className={styles.secondary}>{what.extra}</span>}
+                                                            <div>
+                                                                {what.main || '—'}
+                                                                {what.extra && <span className={styles.secondary}>{what.extra}</span>}
+                                                            </div>
                                                         </td>
                                                         <td data-label="Origen">
                                                             <span className={`badge ${rule.origin === 'MANUAL' ? 'badge-primary' : styles.learned}`}>{rule.origin === 'MANUAL' ? 'Manual' : 'Aprendida'}</span>
