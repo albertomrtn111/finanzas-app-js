@@ -35,21 +35,32 @@ export default function McpAccess() {
     const [created, setCreated] = useState(null);
     const [message, setMessage] = useState({ type: '', text: '' });
 
+    const fetchAccesses = async () => {
+        const res = await fetch('/api/user/mcp-tokens', { cache: 'no-store' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'No se pudieron cargar los accesos');
+        return data;
+    };
+
+    const applyAccesses = data => {
+        setUrl(data.url);
+        setAccesses(data.accesos);
+    };
+
     const load = async () => {
         try {
-            const res = await fetch('/api/user/mcp-tokens', { cache: 'no-store' });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'No se pudieron cargar los accesos');
-            setUrl(data.url);
-            setAccesses(data.accesos);
+            applyAccesses(await fetchAccesses());
         } catch (error) {
             setMessage({ type: 'error', text: error.message });
-        } finally {
-            setLoading(false);
         }
     };
 
-    useEffect(() => { load(); }, []);
+    useEffect(() => {
+        fetchAccesses()
+            .then(applyAccesses)
+            .catch(error => setMessage({ type: 'error', text: error.message }))
+            .finally(() => setLoading(false));
+    }, []);
 
     const handleCreate = async event => {
         event.preventDefault();

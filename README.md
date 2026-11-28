@@ -12,6 +12,10 @@ Aplicación de finanzas personales con Next.js, NextAuth y Prisma. Permite regis
 
 Las tablas personales existían antes de que este repositorio incorporase migraciones. `20261004_personal_baseline` reproduce su esquema para instalaciones nuevas y debe marcarse como aplicada, sin ejecutarla, en bases existentes. `20261005_business_module` añade `users.account_mode` y las tablas de Empresa. Haz una copia de seguridad antes de aplicarla. El cliente de Prisma y el servidor necesitan la migración aplicada para usar las nuevas rutas.
 
+## Vercel
+
+El repositorio sigue conectado a un proyecto de Vercel que nunca ha llegado a desplegar: la app se publica en el servidor propio. `vercel.json` desactiva los despliegues automáticos (`git.deploymentEnabled: false`) para que Vercel no cree despliegues fallidos ni marque en rojo cada PR. Para quitar la conexión del todo, se desconecta el repositorio en el panel de Vercel.
+
 ## Comprobaciones
 
 ```bash

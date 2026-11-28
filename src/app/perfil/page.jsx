@@ -27,24 +27,18 @@ export default function PerfilPage({ businessContext = false }) {
     const [exportMessage, setExportMessage] = useState({ type: '', text: '' });
 
     useEffect(() => {
-        loadProfile();
-    }, []);
-
-    const loadProfile = async () => {
-        try {
-            const res = await fetch('/api/user/profile');
-            if (res.ok) {
-                const data = await res.json();
+        fetch('/api/user/profile')
+            .then(res => {
+                if (!res.ok) throw new Error('No se pudo cargar el perfil');
+                return res.json();
+            })
+            .then(data => {
                 setProfile(data);
                 setName(data.name || '');
-            } else {
-                setMessage({ type: 'error', text: 'No se pudo cargar el perfil' });
-            }
-        } catch (error) {
-            setMessage({ type: 'error', text: 'Error de conexión al cargar el perfil' });
-        }
-        setLoading(false);
-    };
+            })
+            .catch(error => setMessage({ type: 'error', text: error.message === 'No se pudo cargar el perfil' ? error.message : 'Error de conexión al cargar el perfil' }))
+            .finally(() => setLoading(false));
+    }, []);
 
     const handleSave = async () => {
         if (!name.trim()) {
