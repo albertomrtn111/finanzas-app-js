@@ -1,5 +1,5 @@
-// Prisma schema - Mapea las tablas PostgreSQL existentes
-// La aplicación Streamlit usa estas mismas tablas
+// Esquema de la base de datos de NextFinance (PostgreSQL). Cada cambio necesita su migración en
+// prisma/migrations; scripts/check-migrations.mjs lo comprueba.
 
 // Cliente de Prisma 7: se genera como TypeScript en src/generated/prisma (no va al repositorio).
 // Next.js lo compila y Node 22.18+ lo importa directamente en los scripts y las pruebas.
@@ -127,6 +127,7 @@ model Budget {
   @@map("budgets")
 }
 
+// Sin uso en la app actual: se conserva porque la tabla puede tener datos de versiones anteriores.
 model InvestmentAssetType {
   id         Int      @id @default(autoincrement())
   user_id    Int
