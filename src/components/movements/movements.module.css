@@ -1,0 +1,227 @@
+/* Gastos e ingresos: botón «+», formulario único y lista por días (Tareas NF-17 y NF-19).
+   Usa los tokens de :root (globals.css), así que respeta el modo oscuro. */
+
+/* ---------- Botón flotante «+» ---------- */
+.fab {
+  position: fixed;
+  z-index: 90; /* por debajo de la barra superior móvil, del menú y de las ventanas */
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+  color: #FFFFFF;
+  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+  cursor: pointer;
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+.fab:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(37, 99, 235, 0.5); }
+.fab:focus-visible { outline: none; box-shadow: var(--focus-ring), 0 6px 20px rgba(37, 99, 235, 0.45); }
+
+/* Con avisos abajo, el botón sube por encima de ellos (como en Material), para poder apuntar otro
+   sin esperar a que se cierren. Los avisos viven en el contenedor aria-live del kit. */
+:global(body:has([aria-live="polite"] > [class*="toast"]:nth-child(1))) .fab { transform: translateY(-88px); }
+:global(body:has([aria-live="polite"] > [class*="toast"]:nth-child(2))) .fab { transform: translateY(-168px); }
+:global(body:has([aria-live="polite"] > [class*="toast"]:nth-child(3))) .fab { transform: translateY(-248px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fab { transition: none; }
+}
+
+.fabSpacer { height: 80px; }
+
+/* En el móvil la ventana se abre arriba: queda sitio para el teclado. */
+@media (max-width: 768px) {
+  .dialog { margin-top: max(12px, env(safe-area-inset-top, 0px)); }
+}
+
+/* ---------- Formulario ---------- */
+.form { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.form :global(.form-group) { margin-bottom: 0.75rem; }
+
+.form .amountInput {
+  font-size: 1.75rem;
+  font-weight: 600;
+  padding: 10px 14px;
+  min-height: 56px;
+}
+
+.kindToggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 0.75rem;
+  border-radius: var(--border-radius-sm);
+  background: var(--bg-tertiary);
+}
+.kindOption {
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.kindOption:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.kindOptionActive { background: var(--bg-primary); color: var(--text-primary); box-shadow: var(--shadow-sm); }
+
+.pairRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+}
+/* Dos columnas también en un móvil de 375 px (la ventana deja unos 300 px de ancho). */
+.pairRow > * { flex: 1 1 135px; min-width: 0; }
+
+.more { margin: 0.25rem 0 0.75rem; }
+.more > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  width: fit-content;
+  cursor: pointer;
+  color: var(--primary-dark);
+  font-size: 0.9rem;
+  font-weight: 500;
+  border-radius: var(--border-radius-sm);
+}
+.more > summary:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.moreBody { padding-top: 0.5rem; }
+.notes { min-height: 72px; }
+
+.inlineError {
+  color: var(--danger-text);
+  font-size: 0.875rem;
+  margin: 0 0 0.75rem;
+}
+.linkButton {
+  border: 0;
+  background: transparent;
+  padding: 0.25rem;
+  min-height: 44px;
+  color: var(--primary-dark);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.formActions .deleteAction { margin-right: auto; color: var(--danger-text); }
+
+/* ---------- Registro ---------- */
+.cardTitle { font-size: 1.1rem; font-weight: 600; margin: 0; }
+.modeTabs :global(.tab) { min-height: 44px; }
+
+/* En el móvil se apunta con el botón «+», así la lista queda a mano. */
+@media (max-width: 768px) {
+  .entryCard { display: none; }
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.filters :global(.form-group) { margin-bottom: 0.75rem; }
+.filterSearch, .filterMore { grid-column: 1 / -1; }
+.filterMore { margin-top: 0; }
+@media (min-width: 900px) {
+  .filters { grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); }
+  .filterSearch { grid-column: auto; }
+}
+
+.resultBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  min-height: 44px;
+  margin-bottom: 0.75rem;
+}
+.resultText { margin: 0; color: var(--text-secondary); font-size: 0.925rem; }
+.resultText strong { color: var(--text-primary); }
+.resultBar .clearButton { width: auto; min-height: 44px; }
+
+.days { display: flex; flex-direction: column; gap: 1.25rem; transition: opacity var(--transition-fast); }
+.busy { opacity: 0.55; }
+
+.dayHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0 0.25rem 0.4rem;
+  border-bottom: 1px solid var(--border-color);
+}
+.dayTitle { margin: 0; font-size: 0.95rem !important; font-weight: 600; color: var(--text-primary); }
+.dayTitle::first-letter { text-transform: uppercase; }
+.dayTotal { font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+
+.rows { list-style: none; margin: 0; padding: 0; }
+.row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border-color);
+  min-width: 0;
+}
+.row:last-child { border-bottom: 0; }
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 56px;
+  padding: 0.5rem 0.25rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+}
+.rowMain:hover { background: var(--bg-secondary); }
+.rowMain:focus-visible, .rowDelete:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+.rowText { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.rowTitle, .rowMeta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rowTitle { font-weight: 600; color: var(--text-primary); }
+.rowMeta { font-size: 0.85rem; color: var(--text-tertiary); }
+.rowAmount { flex-shrink: 0; font-weight: 600; white-space: nowrap; }
+
+.rowDelete {
+  flex-shrink: 0;
+  align-self: center;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.rowDelete:hover { background: var(--bg-tertiary); color: var(--danger-text); }
+
+.loadMore { display: flex; justify-content: center; margin-top: 1rem; }

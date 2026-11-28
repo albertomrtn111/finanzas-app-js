@@ -1,0 +1,113 @@
+// Lista de movimientos de Registro (Tarea NF-19): agrupar por día con totales en céntimos,
+// periodos de fechas y parámetros de los filtros. Sin React para poder probarlo.
+import { parseAmountInput } from './amount.js';
+
+export const PAGE_SIZE = 50;
+
+export const EMPTY_FILTERS = { q: '', category: '', period: 'all', month: '', from: '', to: '', min: '', max: '' };
+
+export const PERIODS = [
+    { value: 'all', label: 'Cualquier fecha' },
+    { value: 'this-month', label: 'Este mes' },
+    { value: 'last-month', label: 'Mes anterior' },
+    { value: 'this-year', label: 'Este año' },
+    { value: 'month', label: 'Elegir un mes…' },
+    { value: 'range', label: 'Entre dos fechas…' },
+];
+
+const pad = value => String(value).padStart(2, '0');
+
+// «12.5», 12.5 o un Decimal de Prisma → 1250 céntimos, sin errores de coma flotante.
+export function toCents(value) {
+    const text = String(value ?? '').trim();
+    const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+    if (match) {
+        const cents = Number(match[2]) * 100 + Number((match[3] || '').padEnd(2, '0'));
+        return match[1] && cents ? -cents : cents;
+    }
+    const number = Number(text);
+    return Number.isFinite(number) ? Math.round(number * 100) : 0;
+}
+
+// Día AAAA-MM-DD de un movimiento (la API devuelve «2026-11-23T00:00:00.000Z»).
+export function dayOf(record) {
+    return String(record?.date ?? '').slice(0, 10);
+}
+
+// Agrupa una lista ya ordenada por fecha en días consecutivos: [{ day, totalCents, items }].
+export function groupByDay(records) {
+    const groups = [];
+    const byDay = new Map();
+    for (const record of records) {
+        const day = dayOf(record);
+        let group = byDay.get(day);
+        if (!group) {
+            group = { day, totalCents: 0, items: [] };
+            byDay.set(day, group);
+            groups.push(group);
+        }
+        group.items.push(record);
+        group.totalCents += toCents(record.amount);
+    }
+    return groups;
+}
+
+function monthBounds(year, month) {
+    const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return { from: `${year}-${pad(month)}-01`, to: `${year}-${pad(month)}-${pad(last)}` };
+}
+
+// Fechas desde/hasta de un periodo del filtro. today es el día de hoy en Madrid (AAAA-MM-DD).
+export function periodRange(period, { today, month, from, to } = {}) {
+    const [year, monthNumber] = String(today || '').split('-').map(Number);
+    switch (period) {
+        case 'this-month':
+            return monthBounds(year, monthNumber);
+        case 'last-month':
+            return monthNumber === 1 ? monthBounds(year - 1, 12) : monthBounds(year, monthNumber - 1);
+        case 'this-year':
+            return { from: `${year}-01-01`, to: `${year}-12-31` };
+        case 'month': {
+            const match = /^(\d{4})-(\d{2})$/.exec(month || '');
+            if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) return {};
+            return monthBounds(Number(match[1]), Number(match[2]));
+        }
+        case 'range':
+            return { ...(from ? { from } : {}), ...(to ? { to } : {}) };
+        default:
+            return {};
+    }
+}
+
+// Filtros de la pantalla → texto de la consulta para la API, o errores por campo.
+// q va aparte porque la pantalla la retrasa mientras se escribe.
+export function filtersToQuery(filters, { today, q = filters.q } = {}) {
+    const params = new URLSearchParams();
+    const errors = {};
+    const text = String(q ?? '').trim();
+    if (text) params.set('q', text.slice(0, 100));
+    if (filters.category) params.set('category', filters.category);
+
+    const range = periodRange(filters.period, { today, month: filters.month, from: filters.from, to: filters.to });
+    if (range.from && range.to && range.from > range.to) errors.range = 'La fecha «desde» es posterior a «hasta»';
+    else {
+        if (range.from) params.set('from', range.from);
+        if (range.to) params.set('to', range.to);
+    }
+
+    for (const [name, label] of [['min', 'El importe mínimo'], ['max', 'El importe máximo']]) {
+        if (!String(filters[name] ?? '').trim()) continue;
+        const parsed = parseAmountInput(filters[name], { allowZero: true, label });
+        if (parsed.error) errors[name] = parsed.error;
+        else params.set(name, parsed.value);
+    }
+    if (params.has('min') && params.has('max') && Number(params.get('min')) > Number(params.get('max'))) {
+        errors.max = 'El importe máximo es menor que el mínimo';
+    }
+    return { query: params.toString(), errors: Object.keys(errors).length ? errors : null };
+}
+
+export function hasActiveFilters(filters) {
+    return Boolean(String(filters.q ?? '').trim() || filters.category || (filters.period && filters.period !== 'all') ||
+        String(filters.min ?? '').trim() || String(filters.max ?? '').trim());
+}
