@@ -1,17 +1,13 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireUser } from '@/lib/session';
 import prisma from '@/lib/db';
 
 // GET - Get current onboarding step
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requireUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
 
         const user = await prisma.user.findUnique({
             where: { id: userId },
@@ -32,12 +28,9 @@ export async function GET(request) {
 // PATCH - Update onboarding step
 export async function PATCH(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requireUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { step } = await request.json().catch(() => ({}));
 
         // Validate step (0-5)

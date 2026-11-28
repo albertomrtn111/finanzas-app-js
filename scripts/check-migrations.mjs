@@ -9,7 +9,9 @@ import { spawnSync } from 'node:child_process';
 
 // Índices que solo existen en el SQL de las migraciones porque Prisma no sabe representarlos
 // (únicos parciales de los números de factura, 20261005_business_module). El esquema no los
-// conoce y Prisma propondría borrarlos: esa diferencia es la esperada.
+// conoce y Prisma 6 proponía borrarlos: esa diferencia es la esperada. Prisma 7 ya no los tiene
+// en cuenta al comparar (sin la opción previa partialIndexes) y no los propone; que siguen
+// existiendo lo comprueba test/business.integration.test.mjs.
 const RAW_SQL_ONLY = [
     'DROP INDEX "business_issued_number_key";',
     'DROP INDEX "business_received_supplier_number_key";',
@@ -21,7 +23,9 @@ if (!shadow) {
     process.exit(1);
 }
 
-const result = spawnSync('npx', ['prisma', 'migrate', 'diff', '--from-migrations', 'prisma/migrations', '--to-schema-datamodel', 'prisma/schema.prisma', '--shadow-database-url', shadow, '--script'], { encoding: 'utf8' });
+// Prisma 7 ya no acepta --shadow-database-url: la toma de shadowDatabaseUrl en prisma.config.mjs,
+// que lee SHADOW_DATABASE_URL del entorno heredado.
+const result = spawnSync('npx', ['prisma', 'migrate', 'diff', '--from-migrations', 'prisma/migrations', '--to-schema', 'prisma/schema.prisma', '--script'], { encoding: 'utf8' });
 if (result.status !== 0) {
     console.error(result.stdout, result.stderr);
     console.error('✖ No se ha podido comparar las migraciones con el esquema.');

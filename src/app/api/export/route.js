@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
-import archiver from 'archiver';
+import { strToU8, zipSync } from 'fflate';
 import { badRequest } from '@/lib/apiResponses';
 
 
@@ -142,9 +142,9 @@ export async function GET(request) {
         }
 
         // Generate ZIP with CSVs
-        const zipBuffer = await generateZip(data);
+        const zipBytes = generateZip(data);
 
-        return new Response(zipBuffer, {
+        return new Response(zipBytes, {
             status: 200,
             headers: {
                 'Content-Type': 'application/zip',
@@ -169,37 +169,26 @@ function formatDates(records) {
     });
 }
 
-// Generate ZIP file with CSVs
-async function generateZip(data) {
-    return new Promise((resolve, reject) => {
-        const chunks = [];
-        const archive = archiver('zip', { zlib: { level: 9 } });
+// ZIP con metadata.json y un CSV por tabla, en ese orden (fflate, compresión máxima).
+function generateZip(data) {
+    const files = { 'metadata.json': strToU8(JSON.stringify(data.metadata, null, 2)) };
 
-        archive.on('data', chunk => chunks.push(chunk));
-        archive.on('end', () => resolve(Buffer.concat(chunks)));
-        archive.on('error', reject);
+    const tables = [
+        { name: 'incomes', data: data.incomes },
+        { name: 'expenses', data: data.expenses },
+        { name: 'budgets', data: data.budgets },
+        { name: 'cash_snapshots', data: data.cash_snapshots },
+        { name: 'investments', data: data.investments },
+        { name: 'investment_products', data: data.investment_products },
+        { name: 'expense_categories', data: data.expense_categories },
+        { name: 'income_categories', data: data.income_categories }
+    ];
 
-        // Add metadata.json
-        archive.append(JSON.stringify(data.metadata, null, 2), { name: 'metadata.json' });
+    for (const table of tables) {
+        files[`${table.name}.csv`] = strToU8(toCSV(table.data));
+    }
 
-        // Add CSVs for each data type
-        const tables = [
-            { name: 'incomes', data: data.incomes },
-            { name: 'expenses', data: data.expenses },
-            { name: 'budgets', data: data.budgets },
-            { name: 'cash_snapshots', data: data.cash_snapshots },
-            { name: 'investments', data: data.investments },
-            { name: 'investment_products', data: data.investment_products },
-            { name: 'expense_categories', data: data.expense_categories },
-            { name: 'income_categories', data: data.income_categories }
-        ];
-
-        for (const table of tables) {
-            archive.append(toCSV(table.data), { name: `${table.name}.csv` });
-        }
-
-        archive.finalize();
-    });
+    return zipSync(files, { level: 9 });
 }
 
 // Simple helper to convert array of objects to CSV

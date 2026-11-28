@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 import { businessContext, businessRoute, jsonBody, validId } from '@/lib/businessAccess';
 import { appDate, cents, cleanText, money, todayInMadrid } from '@/lib/business';
+import { createLogged, deleteLogged, updateLogged, webContext } from '@/lib/changeLog';
 
 export const GET = businessRoute(async (_request, { params }) => {
     const { businessId } = await params;
@@ -26,7 +27,8 @@ export const POST = businessRoute(async (request, { params }) => {
     const balance = cents(body.opening_balance, { allowNegative: true, allowZero: true });
     if (!name || !['BANK', 'CASH'].includes(kind) || !opening_on || body.opening_on > todayInMadrid() || balance === null) return NextResponse.json({ error: 'Datos de cuenta inválidos: nombre, saldo inicial con hasta dos decimales y fecha inicial no futura.' }, { status: 400 });
     try {
-        const account = await prisma.businessAccount.create({ data: { business_id: context.business.id, name, kind, opening_on, opening_balance: money(balance) } });
+        const change = webContext(context.userId, 'empresa:cuentas:crear');
+        const account = await prisma.$transaction(tx => createLogged(tx, change, 'business_account', { business_id: context.business.id, name, kind, opening_on, opening_balance: money(balance) }, { businessId: context.business.id }));
         return NextResponse.json(account, { status: 201 });
     } catch (error) {
         if (error.code === 'P2002') return NextResponse.json({ error: 'Ya existe una cuenta con ese nombre' }, { status: 409 });
@@ -50,9 +52,10 @@ export const PATCH = businessRoute(async (request, { params }) => {
     const count = await prisma.businessMovement.count({ where: { account_id: id, business_id: context.business.id } });
     if (count && (existing.kind !== kind || existing.opening_on.getTime() !== opening_on.getTime() || cents(existing.opening_balance, { allowNegative: true, allowZero: true }) !== balance)) return NextResponse.json({ error: 'Con movimientos, solo puedes cambiar el nombre. Registra un ajuste de saldo si es necesario.' }, { status: 409 });
     try {
-        const updated = await prisma.businessAccount.updateMany({ where: { id, business_id: context.business.id }, data: { name, kind, opening_on, opening_balance: money(balance) } });
-        if (!updated.count) return NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 });
-        return NextResponse.json(await prisma.businessAccount.findUnique({ where: { id } }));
+        const change = webContext(context.userId, 'empresa:cuentas:editar');
+        const updated = await prisma.$transaction(tx => updateLogged(tx, change, 'business_account', { id, business_id: context.business.id }, { name, kind, opening_on, opening_balance: money(balance) }, { businessId: context.business.id }));
+        if (!updated) return NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 });
+        return NextResponse.json(updated);
     } catch (error) {
         if (error.code === 'P2002') return NextResponse.json({ error: 'Ya existe una cuenta con ese nombre' }, { status: 409 });
         throw error;
@@ -68,8 +71,9 @@ export const DELETE = businessRoute(async (request, { params }) => {
     // La base de datos impide borrar una cuenta con movimientos (clave ajena NO ACTION): sin comprobar
     // antes y borrar después, un movimiento registrado entre medias no puede desaparecer.
     try {
-        const deleted = await prisma.businessAccount.deleteMany({ where: { id, business_id: context.business.id } });
-        return deleted.count ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 });
+        const change = webContext(context.userId, 'empresa:cuentas:borrar');
+        const deleted = await prisma.$transaction(tx => deleteLogged(tx, change, 'business_account', { id, business_id: context.business.id }, { businessId: context.business.id }));
+        return deleted ? NextResponse.json({ ok: true }) : NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 });
     } catch (error) {
         if (error.code === 'P2003') return NextResponse.json({ error: 'La cuenta tiene movimientos. Consérvala para mantener el historial.' }, { status: 409 });
         throw error;

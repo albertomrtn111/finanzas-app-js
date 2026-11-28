@@ -3,7 +3,7 @@
 # ---- dependencias ----
 FROM node:24-alpine AS deps
 WORKDIR /app
-# Prisma en Alpine necesita openssl.
+# El motor de migraciones de Prisma (schema-engine) necesita openssl en Alpine.
 RUN apk add --no-cache openssl
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -14,7 +14,9 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npx prisma generate
+# Genera el cliente de Prisma en src/generated/prisma (Next.js lo incluye en .next) y se asegura
+# de que el motor de migraciones está en node_modules: si falta, falla aquí y no al migrar.
+RUN npx prisma generate && ls node_modules/@prisma/engines/schema-engine-* > /dev/null
 RUN npm run build
 
 # ---- ejecución ----
@@ -32,8 +34,10 @@ COPY --from=builder /app/package.json /app/package-lock.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-# Esquema y migraciones: el despliegue las aplica con «npx prisma migrate deploy».
+# Esquema, migraciones y configuración de la CLI de Prisma: el despliegue aplica las migraciones
+# con «npx prisma migrate deploy», que lee DATABASE_URL del .env del compose.
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.mjs ./
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { Prisma } from '@prisma/client';
-import prisma from '@/lib/db';
+import prisma, { Prisma } from '@/lib/db';
 import { businessContext, businessRoute, jsonBody, validId } from '@/lib/businessAccess';
 import { activityInput, cents, closedQuarterMessage, closedQuartersTouched } from '@/lib/business';
+import { createLogged, logChange, webContext, withoutRelations } from '@/lib/changeLog';
 
 // Cambiar o borrar una factura de un trimestre de IVA ya terminado hay que pedirlo de forma expresa
 // con ?trimestre=cerrado, igual que borrar sus documentos con ?adjuntos=borrar.
@@ -37,7 +37,8 @@ export const POST = businessRoute(async (request, { params }) => {
     const { value, error } = activityInput(await jsonBody(request));
     if (error) return NextResponse.json({ error }, { status: 400 });
     try {
-        const activity = await prisma.businessActivity.create({ data: { business_id: context.business.id, ...value } });
+        const change = webContext(context.userId, 'empresa:operaciones:crear');
+        const activity = await prisma.$transaction(tx => createLogged(tx, change, 'business_activity', { business_id: context.business.id, ...value }, { businessId: context.business.id }));
         return NextResponse.json(activity, { status: 201 });
     } catch (cause) {
         if (cause.code === 'P2002') return NextResponse.json({ error: 'Ya existe una factura con ese número en este tipo de registro' }, { status: 409 });
@@ -64,8 +65,9 @@ export const PATCH = businessRoute(async (request, { params }) => {
             if (existing.allocations.length && existing.direction !== value.direction) return { status: 409, error: 'Desvincula los cobros o pagos antes de cambiar el tipo' };
             const paid = existing.allocations.reduce((sum, a) => sum + cents(a.amount), 0);
             if (paid > cents(value.total_amount)) return { status: 409, error: 'El nuevo total es inferior al importe ya cobrado o pagado' };
-            await tx.businessActivity.update({ where: { id }, data: value });
-            return { activity: await tx.businessActivity.findUnique({ where: { id } }) };
+            const activity = await tx.businessActivity.update({ where: { id }, data: value });
+            await logChange(tx, webContext(context.userId, 'empresa:operaciones:editar'), { entity: 'business_activity', entityId: id, action: 'UPDATE', before: withoutRelations(existing), after: activity, businessId: context.business.id });
+            return { activity };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         return respond(result, ({ activity }) => NextResponse.json(activity));
     } catch (cause) {
@@ -97,6 +99,9 @@ export const DELETE = businessRoute(async (request, { params }) => {
                 return { status: 409, error: `Esta operación tiene ${files === 1 ? 'un documento adjunto' : `${files} documentos adjuntos`} que también se borrarían. Descárgalos antes si quieres conservarlos.`, adjuntos: files };
             }
             await tx.businessActivity.delete({ where: { id } });
+            // Los documentos adjuntos no se guardan en el registro de cambios: al deshacer el borrado,
+            // la operación vuelve sin ellos.
+            await logChange(tx, webContext(context.userId, 'empresa:operaciones:borrar'), { entity: 'business_activity', entityId: id, action: 'DELETE', before: withoutRelations(existing), businessId: context.business.id });
             return { ok: true };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         return respond(result, () => NextResponse.json({ ok: true }));

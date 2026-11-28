@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
+import { createLogged, logChange, webContext } from '@/lib/changeLog';
+
+const ENTITY = { income: 'income_category', expense: 'expense_category' };
 import prisma from '@/lib/db';
 import { badRequest } from '@/lib/apiResponses';
 
@@ -10,12 +12,9 @@ const validName = (name) => typeof name === 'string' && name.trim().length > 0 &
 // GET - Obtener categorías
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const type = searchParams.get('type') || 'expense';
         if (!validType(type)) return badRequest('Tipo de categoría inválido');
@@ -43,34 +42,18 @@ export async function GET(request) {
 // POST - Crear categoría
 export async function POST(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { name, type } = await request.json().catch(() => ({}));
 
         if (!validType(type) || !validName(name)) return badRequest('Categoría inválida');
 
-        let category;
-        if (type === 'income') {
-            category = await prisma.incomeCategory.create({
-                data: {
-                    user_id: userId,
-                    name: name.trim(),
-                    created_at: new Date(),
-                },
-            });
-        } else {
-            category = await prisma.expenseCategory.create({
-                data: {
-                    user_id: userId,
-                    name: name.trim(),
-                    created_at: new Date(),
-                },
-            });
-        }
+        const category = await prisma.$transaction(tx => createLogged(tx, webContext(userId, 'categorias:crear'), ENTITY[type], {
+            user_id: userId,
+            name: name.trim(),
+            created_at: new Date(),
+        }));
 
         return NextResponse.json(category);
     } catch (error) {
@@ -85,12 +68,9 @@ export async function POST(request) {
 // PUT - Actualizar categoría (renombrar)
 export async function PUT(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { oldName, newName, type } = await request.json().catch(() => ({}));
 
         if (!validType(type) || !validName(oldName) || !validName(newName)) return badRequest('Categoría inválida');
@@ -101,18 +81,19 @@ export async function PUT(request) {
         if (!existing) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
         if (previous === next) return NextResponse.json({ message: 'Categoría actualizada' });
 
-        if (type === 'income') {
-            await prisma.$transaction(async (tx) => {
+        // Igual que el MCP: queda como RENAME y deshacerlo vuelve a renombrar movimientos y presupuestos.
+        const change = webContext(userId, 'categorias:renombrar');
+        await prisma.$transaction(async (tx) => {
+            if (type === 'income') {
                 await tx.incomeCategory.update({ where: { id: existing.id }, data: { name: next } });
                 await tx.income.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
-            });
-        } else {
-            await prisma.$transaction(async (tx) => {
+            } else {
                 await tx.expenseCategory.update({ where: { id: existing.id }, data: { name: next } });
                 await tx.expense.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
                 await tx.budget.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
-            });
-        }
+            }
+            await logChange(tx, change, { entity: ENTITY[type], entityId: existing.id, action: 'RENAME', before: { name: previous }, after: { name: next } });
+        });
 
         return NextResponse.json({ message: 'Categoría actualizada' });
     } catch (error) {
@@ -122,15 +103,24 @@ export async function PUT(request) {
     }
 }
 
+// Borra la categoría por nombre y lo registra. Devuelve false si no existe.
+function deleteCategoryLogged(userId, type, name) {
+    const model = type === 'income' ? 'incomeCategory' : 'expenseCategory';
+    return prisma.$transaction(async (tx) => {
+        const existing = await tx[model].findFirst({ where: { user_id: userId, name } });
+        if (!existing) return false;
+        await tx[model].delete({ where: { id: existing.id } });
+        await logChange(tx, webContext(userId, 'categorias:borrar'), { entity: ENTITY[type], entityId: existing.id, action: 'DELETE', before: existing });
+        return true;
+    });
+}
+
 // DELETE - Eliminar categoría
 export async function DELETE(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const name = searchParams.get('name');
         const type = searchParams.get('type') || 'expense';
@@ -147,10 +137,7 @@ export async function DELETE(request) {
                     { status: 400 }
                 );
             }
-            const deleted = await prisma.incomeCategory.deleteMany({
-                where: { user_id: userId, name },
-            });
-            if (!deleted.count) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
+            if (!await deleteCategoryLogged(userId, 'income', name)) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
         } else {
             const inUseExp = await prisma.expense.count({
                 where: { user_id: userId, category: name },
@@ -164,10 +151,7 @@ export async function DELETE(request) {
                     { status: 400 }
                 );
             }
-            const deleted = await prisma.expenseCategory.deleteMany({
-                where: { user_id: userId, name },
-            });
-            if (!deleted.count) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
+            if (!await deleteCategoryLogged(userId, 'expense', name)) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
         }
 
         return NextResponse.json({ message: 'Categoría eliminada' });

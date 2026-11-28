@@ -3,10 +3,17 @@
 //   node scripts/mcp-token.mjs crear <email> [nombre]
 //   node scripts/mcp-token.mjs listar <email>
 //   node scripts/mcp-token.mjs revocar <id>
-import { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '../src/lib/db.js';
 import { displayPrefix, generateToken, hashToken } from '../src/lib/mcp/tokens.js';
 
-const prisma = new PrismaClient();
+// Prisma 7 ya no lee .env por su cuenta: se carga aquí si existe, sin pisar DATABASE_URL si ya está.
+try {
+    process.loadEnvFile();
+} catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+}
+
+const prisma = createPrismaClient();
 const [command, arg, ...rest] = process.argv.slice(2);
 
 async function findUser(email) {

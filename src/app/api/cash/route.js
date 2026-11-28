@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
+import { createLogged, deleteLogged, updateLogged, webContext } from '@/lib/changeLog';
 import prisma from '@/lib/db';
 import { parseFinancialRecord, parseId } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -8,12 +8,9 @@ import { badRequest } from '@/lib/apiResponses';
 // GET - Listar snapshots de efectivo
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
 
         const snapshots = await prisma.cashSnapshot.findMany({
             where: { user_id: userId },
@@ -30,23 +27,18 @@ export async function GET(request) {
 // POST - Crear snapshot
 export async function POST(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const data = await request.json().catch(() => null);
         const { value, error } = parseFinancialRecord('cash', data);
         if (error) return badRequest(error);
 
-        const snapshot = await prisma.cashSnapshot.create({
-            data: {
-                user_id: userId,
-                ...value,
-                created_at: new Date(),
-            },
-        });
+        const snapshot = await prisma.$transaction(tx => createLogged(tx, webContext(userId, 'efectivo:crear'), 'cash_snapshot', {
+            user_id: userId,
+            ...value,
+            created_at: new Date(),
+        }));
 
         return NextResponse.json(snapshot);
     } catch (error) {
@@ -61,26 +53,21 @@ export async function POST(request) {
 // PUT - Actualizar snapshot
 export async function PUT(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const data = await request.json().catch(() => null);
         const id = parseId(data?.id);
         if (!id) return badRequest('Identificador inválido');
         const { value, error } = parseFinancialRecord('cash', data);
         if (error) return badRequest(error);
 
-        const updated = await prisma.cashSnapshot.updateMany({
-            where: { id, user_id: userId }, data: value,
-        });
-        if (!updated.count) {
+        const updated = await prisma.$transaction(tx => updateLogged(tx, webContext(userId, 'efectivo:editar'), 'cash_snapshot', { id, user_id: userId }, value));
+        if (!updated) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
 
-        return NextResponse.json(await prisma.cashSnapshot.findUnique({ where: { id } }));
+        return NextResponse.json(updated);
     } catch (error) {
         console.error('Error actualizando snapshot:', error);
         if (error.code === 'P2002') return badRequest('Ya existe un saldo para esta cuenta y fecha');
@@ -91,18 +78,15 @@ export async function PUT(request) {
 // DELETE - Eliminar snapshot
 export async function DELETE(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const id = parseId(searchParams.get('id'));
         if (!id) return badRequest('Identificador inválido');
 
-        const deleted = await prisma.cashSnapshot.deleteMany({ where: { id, user_id: userId } });
-        if (!deleted.count) {
+        const deleted = await prisma.$transaction(tx => deleteLogged(tx, webContext(userId, 'efectivo:borrar'), 'cash_snapshot', { id, user_id: userId }));
+        if (!deleted) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
 

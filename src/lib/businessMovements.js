@@ -1,7 +1,6 @@
 // Reglas de los movimientos de dinero de empresa, compartidas por la API y el MCP.
 import { randomUUID } from 'node:crypto';
-import { Prisma } from '@prisma/client';
-import prisma from './db.js';
+import prisma, { Prisma } from './db.js';
 import { appDate, cents, cleanText, money, todayInMadrid } from './business.js';
 
 export const FLOW_TYPES = ['OPERATING', 'INVESTING', 'FINANCING', 'TAX', 'OTHER'];
@@ -81,9 +80,14 @@ export async function insertBusinessMovement(tx, businessId, body) {
 }
 
 // Crea un cobro, pago o traspaso en su propia transacción. Devuelve { movements, transfer } o { error, status }.
-export async function createBusinessMovement(businessId, body) {
+// onCreated(tx, created) corre dentro de la misma transacción (p. ej., para el registro de cambios).
+export async function createBusinessMovement(businessId, body, { onCreated } = {}) {
     try {
-        return await prisma.$transaction(tx => insertBusinessMovement(tx, businessId, body), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return await prisma.$transaction(async tx => {
+            const created = await insertBusinessMovement(tx, businessId, body);
+            if (onCreated) await onCreated(tx, created);
+            return created;
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
         if (error.code === 'P2034') return { error: 'Otro cambio modificó los pendientes. Vuelve a intentarlo.', status: 409 };
         if (error instanceof MovementError) return { error: error.message, status: error.status };
@@ -91,8 +95,9 @@ export async function createBusinessMovement(businessId, body) {
     }
 }
 
-// Sustituye los vínculos de un movimiento con facturas. Devuelve { movement, before } o { error, status }.
-export async function replaceAllocations(businessId, movementId, allocations) {
+// Sustituye los vínculos de un movimiento con facturas. Devuelve { movement, before, after } o { error, status }.
+// onReplaced(tx, result) corre dentro de la misma transacción (p. ej., para el registro de cambios).
+export async function replaceAllocations(businessId, movementId, allocations, { onReplaced } = {}) {
     try {
         return await prisma.$transaction(async tx => {
             const movement = await tx.businessMovement.findFirst({ where: { id: movementId, business_id: businessId }, include: { allocations: true } });
@@ -101,7 +106,9 @@ export async function replaceAllocations(businessId, movementId, allocations) {
             const error = await saveAllocations(tx, businessId, movement, allocations);
             if (error) throw new MovementError(error);
             const after = await tx.businessAllocation.findMany({ where: { movement_id: movementId, business_id: businessId } });
-            return { movement, before: movement.allocations, after };
+            const result = { movement, before: movement.allocations, after };
+            if (onReplaced) await onReplaced(tx, result);
+            return result;
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     } catch (error) {
         if (error.code === 'P2034') return { error: 'Los pendientes han cambiado. Vuelve a intentarlo.', status: 409 };

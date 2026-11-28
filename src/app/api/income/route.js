@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
+import { createLogged, deleteLogged, ensureCategoryLogged, updateLogged, webContext } from '@/lib/changeLog';
 import prisma from '@/lib/db';
 import { parseFinancialRecord, parseId, parsePagination } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -11,12 +11,9 @@ import { movementWhere, parseMovementFilters, totalsHeaders } from '@/lib/moveme
 // ingresos cumplen el filtro y cuánto suman en total.
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
 
         // Pagination params
@@ -41,23 +38,18 @@ export async function GET(request) {
 // POST - Crear nuevo ingreso
 export async function POST(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const data = await request.json().catch(() => null);
         const { value, error } = parseFinancialRecord('income', data);
         if (error) return badRequest(error);
 
+        // El ingreso, su categoría si es nueva y el registro de cambios van en la misma transacción.
+        const change = webContext(userId, 'ingresos:crear');
         const income = await prisma.$transaction(async (tx) => {
-            await tx.incomeCategory.upsert({
-                where: { user_id_name: { user_id: userId, name: value.category } },
-                create: { user_id: userId, name: value.category, created_at: new Date() },
-                update: {},
-            });
-            return tx.income.create({ data: { user_id: userId, ...value, created_at: new Date() } });
+            await ensureCategoryLogged(tx, change, 'income', value.category);
+            return createLogged(tx, change, 'income', { user_id: userId, ...value, created_at: new Date() });
         });
 
         return NextResponse.json(income);
@@ -70,27 +62,21 @@ export async function POST(request) {
 // PUT - Actualizar ingreso
 export async function PUT(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const data = await request.json().catch(() => null);
         const id = parseId(data?.id);
         if (!id) return badRequest('Identificador inválido');
         const { value, error } = parseFinancialRecord('income', data);
         if (error) return badRequest(error);
 
+        const change = webContext(userId, 'ingresos:editar');
         const income = await prisma.$transaction(async (tx) => {
-            const updated = await tx.income.updateMany({ where: { id, user_id: userId }, data: value });
-            if (!updated.count) return null;
-            await tx.incomeCategory.upsert({
-                where: { user_id_name: { user_id: userId, name: value.category } },
-                create: { user_id: userId, name: value.category, created_at: new Date() },
-                update: {},
-            });
-            return tx.income.findUnique({ where: { id } });
+            const updated = await updateLogged(tx, change, 'income', { id, user_id: userId }, value);
+            if (!updated) return null;
+            await ensureCategoryLogged(tx, change, 'income', value.category);
+            return updated;
         });
 
         if (!income) {
@@ -107,18 +93,16 @@ export async function PUT(request) {
 // DELETE - Eliminar ingreso
 export async function DELETE(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const id = parseId(searchParams.get('id'));
         if (!id) return badRequest('Identificador inválido');
 
-        const deleted = await prisma.income.deleteMany({ where: { id, user_id: userId } });
-        if (!deleted.count) {
+        // Solo si el ingreso es del usuario. Queda en el registro de cambios y se puede recuperar.
+        const deleted = await prisma.$transaction(tx => deleteLogged(tx, webContext(userId, 'ingresos:borrar'), 'income', { id, user_id: userId }));
+        if (!deleted) {
             return NextResponse.json({ error: 'Ingreso no encontrado' }, { status: 404 });
         }
 

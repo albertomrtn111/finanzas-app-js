@@ -4,10 +4,10 @@ Aplicación de finanzas personales con Next.js, NextAuth y Prisma. Permite regis
 
 ## Preparación
 
-1. Instala las dependencias con `npm ci`.
-2. Copia `env-example.txt` a `.env` y configura `DATABASE_URL`, `NEXTAUTH_URL` y `NEXTAUTH_SECRET`. La autenticación con Google es opcional; requiere `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`.
+1. Instala las dependencias con `npm ci`. Hace falta Node 22.18 o posterior; el servidor y `.nvmrc` usan Node 24.
+2. Copia `.env.example` a `.env` y configura `DATABASE_URL`, `NEXTAUTH_URL` y `NEXTAUTH_SECRET` (al menos 32 caracteres; sin ellas la app no arranca). La autenticación con Google es opcional; requiere `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`.
 3. Si la base ya tiene las tablas personales y todavía no existe `_prisma_migrations`, registra la migración inicial con `npx prisma migrate resolve --applied 20261004_personal_baseline`. Después aplica `npx prisma migrate deploy`. En una base vacía basta con `npx prisma migrate deploy`.
-4. Genera el cliente de Prisma con `npx prisma generate`.
+4. Genera el cliente de Prisma con `npx prisma generate`. Queda en `src/generated/prisma`, que no va al repositorio. La CLI de Prisma toma la URL de `prisma.config.mjs`, que carga `.env` si existe; la app se conecta con el adaptador de `pg` desde `src/lib/db.js`, que respeta `connection_limit`, `pool_timeout`, `connect_timeout` y `schema` de la URL.
 5. Inicia la aplicación con `npm run dev` y abre `http://localhost:3000`.
 
 Las tablas personales existían antes de que este repositorio incorporase migraciones. `20261004_personal_baseline` reproduce su esquema para instalaciones nuevas y debe marcarse como aplicada, sin ejecutarla, en bases existentes. `20261005_business_module` añade `users.account_mode` y las tablas de Empresa. Haz una copia de seguridad antes de aplicarla. El cliente de Prisma y el servidor necesitan la migración aplicada para usar las nuevas rutas.
@@ -32,7 +32,7 @@ npx prisma validate
 1. Vacía la base de datos de `DATABASE_URL` y aplica las migraciones.
 2. Crea dos usuarios con empresa y un acceso MCP cada uno.
 3. Compila y arranca la app en un puerto libre.
-4. Ejecuta, una detrás de otra, todas las pruebas `test/*.integration.test.mjs`. Cubren el MCP, el aislamiento entre usuarios en el MCP y en la web, el acceso y los adjuntos.
+4. Ejecuta, una detrás de otra, todas las pruebas `test/*.integration.test.mjs`. Cubren el MCP, el aislamiento entre usuarios en el MCP y en la web, el acceso, los adjuntos y la exportación (ZIP con CSV y JSON).
 
 **Borra la base de datos entera.** Por eso solo acepta bases de datos locales, salvo que se indique `TEST_DATABASE_CONFIRM=borrar-todo`. Con Docker:
 
