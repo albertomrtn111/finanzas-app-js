@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { compareBudgets, toCents } from '@/lib/personalSummary';
+import { formatPct } from '@/lib/moneyFormat';
 
 export default function PresupuestosPage() {
     const [categories, setCategories] = useState([]);
     const [budgets, setBudgets] = useState({});
-    const [expenses, setExpenses] = useState([]);
-    const [incomes, setIncomes] = useState([]);
+    const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
@@ -14,11 +15,13 @@ export default function PresupuestosPage() {
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
-            const [catRes, budRes, expRes, incRes] = await Promise.all([
+            // Gasto e ingresos del mes en curso: los calcula el servidor con el mismo módulo que Resumen y el MCP.
+            const now = new Date();
+            const params = new URLSearchParams({ period: 'month', year: String(now.getFullYear()), month: String(now.getMonth()) });
+            const [catRes, budRes, sumRes] = await Promise.all([
                 fetch('/api/categories?type=expense'),
                 fetch('/api/budgets'),
-                fetch('/api/expenses'),
-                fetch('/api/income'),
+                fetch(`/api/summary?${params.toString()}`),
             ]);
 
             if (catRes.ok) {
@@ -33,8 +36,7 @@ export default function PresupuestosPage() {
                 });
                 setBudgets(budgetMap);
             }
-            if (expRes.ok) setExpenses(await expRes.json());
-            if (incRes.ok) setIncomes(await incRes.json());
+            if (sumRes.ok) setSummary(await sumRes.json());
         } catch (error) {
             console.error('Error cargando datos:', error);
         }
@@ -82,61 +84,29 @@ export default function PresupuestosPage() {
         setSaving(false);
     };
 
-    // Current month expenses by category
-    const currentMonth = new Date().getMonth();
-    const currentYear = new Date().getFullYear();
+    // Gasto del mes por categoría (en céntimos) tal como lo devuelve el servidor.
+    const spentByCategory = useMemo(() => new Map(
+        (summary?.charts?.categories ?? []).map(c => [c.name, toCents(c.value)])
+    ), [summary]);
+    const spentOf = (name) => (spentByCategory.get(name) || 0) / 100;
 
-    const currentMonthExpenses = useMemo(() => {
-        return expenses.filter(e => {
-            const d = new Date(e.date);
-            return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-        });
-    }, [expenses, currentMonth, currentYear]);
+    // Misma comparación que Resumen y el MCP, aplicada a los importes que se están editando:
+    // solo cuentan las categorías con presupuesto; el resto se muestra como gasto sin presupuesto.
+    const comparison = useMemo(() => compareBudgets({
+        budgets: Object.entries(budgets).map(([category, monthly_amount]) => ({ category, monthly_amount })),
+        spent: spentByCategory,
+        months: 1,
+    }), [budgets, spentByCategory]);
 
-    const expensesByCategory = useMemo(() => {
-        const byCategory = {};
-        currentMonthExpenses.forEach(e => {
-            if (!byCategory[e.category]) byCategory[e.category] = 0;
-            byCategory[e.category] += parseFloat(e.amount);
-        });
-        return byCategory;
-    }, [currentMonthExpenses]);
-
-    // Calculate totals
-    const totalBudget = Object.values(budgets).reduce((sum, val) => sum + val, 0);
-    const totalSpent = Object.values(expensesByCategory).reduce((sum, val) => sum + val, 0);
-
-    // Monthly income for expected savings
-    const currentMonthIncome = useMemo(() => {
-        return incomes
-            .filter(i => {
-                const d = new Date(i.date);
-                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-            })
-            .reduce((sum, i) => sum + parseFloat(i.amount), 0);
-    }, [incomes, currentMonth, currentYear]);
-
+    const totalBudget = comparison.total;
+    const totalSpent = comparison.spent;
+    const currentMonthIncome = summary?.kpi?.income ?? 0;
     const expectedSavings = currentMonthIncome - totalBudget;
 
-    // Categories at risk (>70%)
-    const categoriesAtRisk = useMemo(() => {
-        return categories
-            .filter(cat => {
-                const budget = budgets[cat.name] || 0;
-                const spent = expensesByCategory[cat.name] || 0;
-                const ratio = budget > 0 ? (spent / budget) * 100 : 0;
-                return ratio >= 70;
-            })
-            .map(cat => ({
-                name: cat.name,
-                budget: budgets[cat.name] || 0,
-                spent: expensesByCategory[cat.name] || 0,
-                ratio: budgets[cat.name] > 0
-                    ? (expensesByCategory[cat.name] || 0) / budgets[cat.name] * 100
-                    : 0
-            }))
-            .sort((a, b) => b.ratio - a.ratio);
-    }, [categories, budgets, expensesByCategory]);
+    // Categorías con presupuesto que van por encima del 70 %.
+    const categoriesAtRisk = comparison.categories
+        .filter(cat => (cat.ratio ?? 0) >= 70)
+        .map(cat => ({ name: cat.category, budget: cat.budget, spent: cat.spent, ratio: cat.ratio ?? 0 }));
 
     const formatCurrency = (amount) => {
         return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount);
@@ -184,13 +154,18 @@ export default function PresupuestosPage() {
                             <div className="kpi-value">{formatCurrency(totalBudget)}</div>
                         </div>
                         <div className="kpi-card-enhanced">
-                            <div className="kpi-label">Gastado este mes</div>
+                            <div className="kpi-label">Gastado en categorías con presupuesto</div>
                             <div className="kpi-value text-danger">{formatCurrency(totalSpent)}</div>
                             <div className="kpi-trend">
                                 <span className={totalSpent <= totalBudget ? 'text-success' : 'text-danger'}>
-                                    {totalBudget > 0 ? ((totalSpent / totalBudget) * 100).toFixed(0) : 0}% del presupuesto
+                                    {formatPct(comparison.ratio ?? 0)} del presupuesto
                                 </span>
                             </div>
+                            {comparison.unbudgetedSpent !== 0 && (
+                                <div className="text-muted text-sm">
+                                    Además, {formatCurrency(comparison.unbudgetedSpent)} en categorías sin presupuesto
+                                </div>
+                            )}
                         </div>
                         <div className="kpi-card-enhanced">
                             <div className="kpi-label">Ahorro esperado</div>
@@ -228,7 +203,7 @@ export default function PresupuestosPage() {
                                             <div className="smart-alert-content" style={{ flex: 1 }}>
                                                 <div className="smart-alert-title">{cat.name}</div>
                                                 <div className="smart-alert-desc">
-                                                    {formatCurrency(cat.spent)} de {formatCurrency(cat.budget)} ({cat.ratio.toFixed(0)}%)
+                                                    {formatCurrency(cat.spent)} de {formatCurrency(cat.budget)} ({formatPct(cat.ratio)})
                                                 </div>
                                             </div>
                                             <div className="progress" style={{ width: '100px', height: '8px' }}>
@@ -254,8 +229,8 @@ export default function PresupuestosPage() {
                                 <div className="grid grid-2 gap-lg">
                                     {categories.map((cat) => {
                                         const budget = budgets[cat.name] || 0;
-                                        const spent = expensesByCategory[cat.name] || 0;
-                                        const ratio = budget > 0 ? (spent / budget) * 100 : 0;
+                                        const spent = spentOf(cat.name);
+                                        const ratio = comparison.categories.find(c => c.category === cat.name)?.ratio ?? 0;
 
                                         return (
                                             <div
@@ -289,7 +264,7 @@ export default function PresupuestosPage() {
                                                             />
                                                         </div>
                                                         <div className="text-sm text-muted" style={{ marginTop: '4px' }}>
-                                                            {ratio.toFixed(0)}% consumido
+                                                            {formatPct(ratio)} consumido
                                                         </div>
                                                     </div>
                                                 )}

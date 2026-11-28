@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import prisma from '@/lib/db';
 import { badRequest } from '@/lib/apiResponses';
+import { financialStatus, madridToday, monthRange, yearRange, yearSeries } from '@/lib/personalSummary';
+import { loadPersonalSummary, recordYears } from '@/lib/personalSummaryData';
 
+// Resumen personal de un mes o de un año para la página Resumen y Presupuestos.
+// Todo el cálculo sale de src/lib/personalSummary.js, el mismo que usa la herramienta resumen_personal del MCP.
 export async function GET(request) {
     try {
         const session = await getServerSession(authOptions);
@@ -13,186 +16,77 @@ export async function GET(request) {
 
         const userId = parseInt(session.user.id);
         const { searchParams } = new URL(request.url);
+        const today = madridToday();
 
-        const year = Number(searchParams.get('year') ?? new Date().getUTCFullYear());
+        const year = Number(searchParams.get('year') ?? today.slice(0, 4));
         const monthParam = searchParams.get('month');
         const month = monthParam !== null ? Number(monthParam) : -1;
-        const period = searchParams.get('period') || 'year'; // 'month' or 'year'
+        const period = searchParams.get('period') || 'year'; // 'month' o 'year'
         if (!Number.isInteger(year) || year < 1900 || year > 2100 ||
             !Number.isInteger(month) || month < -1 || month > 11 ||
             !['month', 'year'].includes(period) || (period === 'month' && month === -1)) {
             return badRequest('Periodo inválido');
         }
 
-        // Helpers to determine date ranges
-        const getRange = (y, m, p) => {
-            if (p === 'year' || m === -1) {
-                return {
-                    start: new Date(Date.UTC(y, 0, 1)),
-                    end: new Date(Date.UTC(y + 1, 0, 1))
-                };
-            } else {
-                return {
-                    start: new Date(Date.UTC(y, m, 1)),
-                    end: new Date(Date.UTC(y, m + 1, 1))
-                };
-            }
-        };
-
-        const currentRange = getRange(year, month, period);
-
-        // Previous period for trends
-        let prevRange;
-        if (period === 'year' || month === -1) {
-            prevRange = getRange(year - 1, -1, 'year');
-        } else {
-            // Previous month
-            const prevDate = new Date(Date.UTC(year, month - 1, 1));
-            prevRange = getRange(prevDate.getUTCFullYear(), prevDate.getUTCMonth(), 'month');
-        }
-
-        // 1. Fetch Aggregated Totals for Current and Previous Period
-        // We can do this in parallel
-        const [
-            currIncomes, currExpenses,
-            prevIncomes, prevExpenses,
-            monthlySeriesIncomes, monthlySeriesExpenses,
-            categories, types,
-            budgets
-        ] = await Promise.all([
-            // Current Totals
-            prisma.income.aggregate({
-                _sum: { amount: true },
-                where: { user_id: userId, date: { gte: currentRange.start, lt: currentRange.end } }
-            }),
-            prisma.expense.aggregate({
-                _sum: { amount: true },
-                where: { user_id: userId, date: { gte: currentRange.start, lt: currentRange.end } }
-            }),
-            // Previous Totals
-            prisma.income.aggregate({
-                _sum: { amount: true },
-                where: { user_id: userId, date: { gte: prevRange.start, lt: prevRange.end } }
-            }),
-            prisma.expense.aggregate({
-                _sum: { amount: true },
-                where: { user_id: userId, date: { gte: prevRange.start, lt: prevRange.end } }
-            }),
-            // Monthly Series (Always for the full requested year to populate the bar chart)
-            // GroupBy is not fully supported for date truncation in all Prisma versions efficiently without raw query or post-processing.
-            // Since dataset is per-user, fetching simple fields (date, amount) for the WHOLE YEAR is usually okay, 
-            // or we use groupBy on raw if needed. For now, let's fetch subset and aggregate in JS for the series to avoid specialized raw SQL compatibility issues if possible,
-            // BUT for "thousands of movements" request, we should try raw query or groupBy.
-            // Prisma groupBy doesn't support "month of date". 
-            // Let's stick to: Fetch ALL for the year (lightweight objects) and aggregate in JS. 
-            // It's still better than sending them to frontend.
-            prisma.income.findMany({
-                where: { user_id: userId, date: { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) } },
-                select: { date: true, amount: true }
-            }),
-            prisma.expense.findMany({
-                where: { user_id: userId, date: { gte: new Date(Date.UTC(year, 0, 1)), lt: new Date(Date.UTC(year + 1, 0, 1)) } },
-                select: { date: true, amount: true }
-            }),
-            // Categories (Current Period)
-            prisma.expense.groupBy({
-                by: ['category'],
-                _sum: { amount: true },
-                where: { user_id: userId, date: { gte: currentRange.start, lt: currentRange.end } },
-                orderBy: { _sum: { amount: 'desc' } }
-            }),
-            // Types (Current Period)
-            prisma.expense.groupBy({
-                by: ['expense_type'],
-                _sum: { amount: true },
-                where: { user_id: userId, date: { gte: currentRange.start, lt: currentRange.end } }
-            }),
-            // Budgets (Total monthly base)
-            prisma.budget.aggregate({
-                _sum: { monthly_amount: true },
-                where: { user_id: userId }
-            })
+        const isMonth = period === 'month';
+        const { from, to } = isMonth ? monthRange(year, month + 1) : yearRange(year);
+        const series = yearRange(year);
+        const [summary, years] = await Promise.all([
+            loadPersonalSummary(userId, { from, to, today, seriesFrom: series.from, seriesTo: series.to }),
+            recordYears(userId),
         ]);
 
-        const currentIncomeTotal = currIncomes._sum.amount?.toNumber() || 0;
-        const currentExpenseTotal = currExpenses._sum.amount?.toNumber() || 0;
-        const prevIncomeTotal = prevIncomes._sum.amount?.toNumber() || 0;
-        const prevExpenseTotal = prevExpenses._sum.amount?.toNumber() || 0;
+        const { totals, budget, comparison } = summary;
+        const status = financialStatus({ hasData: summary.hasData, budget, savings: totals.savings, savingsRate: totals.savingsRate });
 
-        // KPI Calculations
-        const savings = currentIncomeTotal - currentExpenseTotal;
-        const savingsRate = currentIncomeTotal > 0 ? (savings / currentIncomeTotal) * 100 : 0;
-
-        const prevSavings = prevIncomeTotal - prevExpenseTotal;
-
-        // Trends
-        const calcTrend = (curr, prev) => prev > 0 ? ((curr - prev) / prev) * 100 : 0;
-        const incomeTrend = calcTrend(currentIncomeTotal, prevIncomeTotal);
-        const expenseTrend = calcTrend(currentExpenseTotal, prevExpenseTotal);
-        const savingsTrend = prevSavings !== 0 ? ((savings - prevSavings) / Math.abs(prevSavings)) * 100 : 0;
-
-        // Budget
-        const monthlyBudgetBase = budgets._sum.monthly_amount?.toNumber() || 0;
-        // If viewing year, multiply budget by 12, else 1
-        const displayedBudget = (period === 'year' || month === -1) ? monthlyBudgetBase * 12 : monthlyBudgetBase;
-        const budgetUsageRatio = displayedBudget > 0 ? (currentExpenseTotal / displayedBudget) * 100 : 0;
-
-        // Monthly Series Processing
-        const monthSeries = Array(12).fill(0).map((_, i) => ({
-            month: i,
-            name: ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'][i],
-            income: 0,
-            expenses: 0,
-            savings: 0
-        }));
-
-        monthlySeriesIncomes.forEach(i => {
-            const m = new Date(i.date).getUTCMonth();
-            if (m >= 0 && m < 12) monthSeries[m].income += Number(i.amount);
-        });
-        monthlySeriesExpenses.forEach(e => {
-            const m = new Date(e.date).getUTCMonth();
-            if (m >= 0 && m < 12) monthSeries[m].expenses += Number(e.amount);
-        });
-        // Calc savings per month
-        monthSeries.forEach(m => m.savings = m.income - m.expenses);
-
-        // Filter out empty months? Or keep for chart consistency? Usually keep for bar chart x-axis.
-        // Let's only return months that have something or up to current month? 
-        // User usually likes to see full year axis or strictly active months. Let's keep all.
-
-        const response = {
+        return NextResponse.json({
             kpi: {
-                income: currentIncomeTotal,
-                expenses: currentExpenseTotal,
-                savings: savings,
-                savingsRate: savingsRate,
+                income: totals.income,
+                expenses: totals.expenses,
+                savings: totals.savings,
+                savingsRate: totals.savingsRate,
+                // Variaciones frente al tramo equivalente (ver comparison); null si no hay con qué comparar.
                 trends: {
-                    income: incomeTrend,
-                    expenses: expenseTrend,
-                    savings: savingsTrend
-                }
+                    income: comparison.change.incomePct,
+                    expenses: comparison.change.expensesPct,
+                    savings: comparison.change.savingsPct,
+                },
             },
+            comparison,
             budget: {
-                total: displayedBudget,
-                usage: currentExpenseTotal,
-                ratio: budgetUsageRatio
+                // Solo categorías con presupuesto: lo presupuestado frente a lo gastado en ellas.
+                total: budget.total,
+                usage: budget.spent,
+                ratio: budget.ratio ?? 0,
+                remaining: budget.remaining,
+                unbudgeted: budget.unbudgetedSpent,
+                unbudgetedCategories: budget.unbudgetedCategories,
+                overCategories: budget.overCategories,
+                months: budget.months,
+                status: budget.status,
+                categories: budget.categories,
             },
+            status,
             charts: {
-                monthly: monthSeries,
-                categories: categories.map(c => ({ name: c.category, value: c._sum.amount?.toNumber() || 0 })),
-                types: types.map(t => ({ name: t.expense_type || 'Variable', value: t._sum.amount?.toNumber() || 0 }))
+                monthly: yearSeries(summary.monthly, year),
+                categories: summary.byCategory.filter(c => c.spent !== 0).map(c => ({ name: c.category, value: c.spent })),
+                types: summary.byType.map(t => ({ name: t.name, value: t.amount })),
             },
             meta: {
                 year,
                 month,
-                period
-            }
-        };
-
-        return NextResponse.json(response);
+                period,
+                from,
+                to,
+                today,
+                partial: summary.period.partial,
+                hasData: summary.hasData,
+                firstYear: years.first,
+                lastYear: years.last,
+            },
+        });
     } catch (error) {
-        console.error('Error in Summary API:', error);
-        return NextResponse.json({ error: 'Server error' }, { status: 500 });
+        console.error('Error en el resumen personal:', error);
+        return NextResponse.json({ error: 'Error del servidor' }, { status: 500 });
     }
 }
