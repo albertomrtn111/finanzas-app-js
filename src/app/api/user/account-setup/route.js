@@ -1,19 +1,18 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireUser } from '@/lib/session';
 import prisma from '@/lib/db';
 import { cleanText } from '@/lib/business';
 
 export async function POST(request) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    const auth = await requireUser();
+    if (auth.response) return auth.response;
     const body = await request.json().catch(() => ({}));
     const mode = body.accountMode;
     const businessName = cleanText(body.businessName, 120, mode !== 'PERSONAL');
     if (!['PERSONAL', 'COMPANY', 'BOTH'].includes(mode) || businessName === null || (mode !== 'PERSONAL' && !['SELF_EMPLOYED', 'COMPANY'].includes(body.businessKind))) {
         return NextResponse.json({ error: 'Elige el tipo de cuenta y completa los datos del negocio' }, { status: 400 });
     }
-    const userId = Number(session.user.id);
+    const { userId } = auth;
     const result = await prisma.$transaction(async tx => {
         const updated = await tx.user.updateMany({ where: { id: userId, account_mode: 'UNSET' }, data: { account_mode: mode, onboarding_step: mode === 'COMPANY' ? 5 : 0 } });
         if (!updated.count) return false;

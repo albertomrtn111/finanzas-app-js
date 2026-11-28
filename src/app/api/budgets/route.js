@@ -1,18 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
 import prisma from '@/lib/db';
 import { badRequest } from '@/lib/apiResponses';
 
 // GET - Obtener presupuestos
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
 
         const budgets = await prisma.budget.findMany({
             where: { user_id: userId },
@@ -29,12 +25,9 @@ export async function GET(request) {
 // POST - Guardar todos los presupuestos (upsert masivo)
 export async function POST(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { budgets } = await request.json().catch(() => ({}));
         if (!Array.isArray(budgets) || budgets.length > 500) return badRequest('Lista de presupuestos inválida');
         const names = new Set();

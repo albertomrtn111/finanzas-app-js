@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
 import prisma from '@/lib/db';
 import { badRequest } from '@/lib/apiResponses';
 import { madridToday, monthRange, periodTotals, rangeLabel, yearRange } from '@/lib/personalSummary';
@@ -12,12 +11,9 @@ const RECENT = 5;
 // los últimos movimientos del periodo y el momento del último registro. No descarga todos los movimientos.
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const period = new URL(request.url).searchParams.get('period') || 'month';
         if (!['month', 'year'].includes(period)) return badRequest('Periodo inválido');
 

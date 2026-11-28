@@ -1,17 +1,17 @@
-import { getServerSession } from 'next-auth';
 import { NextResponse } from 'next/server';
 import { unstable_rethrow } from 'next/navigation';
-import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db';
+import { requireUser } from '@/lib/session';
 
+// Empresa de la ruta, solo si es del usuario de la sesión. Devuelve { business, userId } o { response }.
 export async function businessContext(businessId) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) return { response: NextResponse.json({ error: 'No autorizado' }, { status: 401 }) };
+    const auth = await requireUser();
+    if (auth.response) return { response: auth.response };
     const id = Number(businessId);
     if (!Number.isSafeInteger(id) || id < 1) return { response: NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 }) };
-    const business = await prisma.business.findFirst({ where: { id, owner_user_id: Number(session.user.id) } });
+    const business = await prisma.business.findFirst({ where: { id, owner_user_id: auth.userId } });
     if (!business) return { response: NextResponse.json({ error: 'Empresa no encontrada' }, { status: 404 }) };
-    return { business, userId: Number(session.user.id) };
+    return { business, userId: auth.userId };
 }
 
 export function validId(value) {

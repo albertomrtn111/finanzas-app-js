@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
 import prisma from '@/lib/db';
 import { parseFinancialRecord, parseId, parsePagination } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -11,12 +10,9 @@ import { movementWhere, parseMovementFilters, totalsHeaders } from '@/lib/moveme
 // ingresos cumplen el filtro y cuánto suman en total.
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
 
         // Pagination params
@@ -41,12 +37,9 @@ export async function GET(request) {
 // POST - Crear nuevo ingreso
 export async function POST(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const data = await request.json().catch(() => null);
         const { value, error } = parseFinancialRecord('income', data);
         if (error) return badRequest(error);
@@ -70,12 +63,9 @@ export async function POST(request) {
 // PUT - Actualizar ingreso
 export async function PUT(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const data = await request.json().catch(() => null);
         const id = parseId(data?.id);
         if (!id) return badRequest('Identificador inválido');
@@ -107,12 +97,9 @@ export async function PUT(request) {
 // DELETE - Eliminar ingreso
 export async function DELETE(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const id = parseId(searchParams.get('id'));
         if (!id) return badRequest('Identificador inválido');

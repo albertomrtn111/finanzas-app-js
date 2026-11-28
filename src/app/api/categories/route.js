@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
 import prisma from '@/lib/db';
 import { badRequest } from '@/lib/apiResponses';
 
@@ -10,12 +9,9 @@ const validName = (name) => typeof name === 'string' && name.trim().length > 0 &
 // GET - Obtener categorías
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const type = searchParams.get('type') || 'expense';
         if (!validType(type)) return badRequest('Tipo de categoría inválido');
@@ -43,12 +39,9 @@ export async function GET(request) {
 // POST - Crear categoría
 export async function POST(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { name, type } = await request.json().catch(() => ({}));
 
         if (!validType(type) || !validName(name)) return badRequest('Categoría inválida');
@@ -85,12 +78,9 @@ export async function POST(request) {
 // PUT - Actualizar categoría (renombrar)
 export async function PUT(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { oldName, newName, type } = await request.json().catch(() => ({}));
 
         if (!validType(type) || !validName(oldName) || !validName(newName)) return badRequest('Categoría inválida');
@@ -125,12 +115,9 @@ export async function PUT(request) {
 // DELETE - Eliminar categoría
 export async function DELETE(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const name = searchParams.get('name');
         const type = searchParams.get('type') || 'expense';

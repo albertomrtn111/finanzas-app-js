@@ -1,7 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requireUser } from '@/lib/session';
 import prisma from '@/lib/db';
 import { LIMITS, hit, isLimited, minutesText } from '@/lib/rateLimit';
 
@@ -10,11 +9,11 @@ const json = (body, status = 200, headers = {}) => NextResponse.json(body, { sta
 // Cambia la contraseña (o crea una, si la cuenta entró con Google y no tenía).
 // Al guardarla se cierran todas las sesiones, también la actual.
 export async function PATCH(request) {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) return json({ error: 'No autorizado' }, 401);
+    const auth = await requireUser({ headers: { 'Cache-Control': 'no-store' } });
+    if (auth.response) return auth.response;
     if (!request.headers.get('content-type')?.includes('application/json')) return json({ error: 'Envía los datos en JSON' }, 415);
 
-    const userId = Number(session.user.id);
+    const { userId } = auth;
     const { currentPassword, newPassword } = await request.json().catch(() => ({}));
     if (typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 72) {
         return json({ error: 'La nueva contraseña debe tener entre 8 y 72 caracteres' }, 400);

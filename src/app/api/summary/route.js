@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
 import { badRequest } from '@/lib/apiResponses';
 import { financialStatus, madridToday, monthRange, yearRange, yearSeries } from '@/lib/personalSummary';
 import { loadPersonalSummary, recordYears } from '@/lib/personalSummaryData';
@@ -9,12 +8,9 @@ import { loadPersonalSummary, recordYears } from '@/lib/personalSummaryData';
 // Todo el cálculo sale de src/lib/personalSummary.js, el mismo que usa la herramienta resumen_personal del MCP.
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const today = madridToday();
 

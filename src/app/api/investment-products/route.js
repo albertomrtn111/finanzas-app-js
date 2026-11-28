@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { requirePersonalUser } from '@/lib/session';
 import prisma from '@/lib/db';
 import { parseId } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -12,12 +11,9 @@ const validProduct = (name, assetType) =>
 // GET - Listar productos de inversión
 export async function GET(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
 
         const products = await prisma.investmentProduct.findMany({
             where: { user_id: userId },
@@ -34,12 +30,9 @@ export async function GET(request) {
 // POST - Crear producto
 export async function POST(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { name, asset_type } = await request.json().catch(() => ({}));
 
         if (!validProduct(name, asset_type)) return badRequest('Nombre o tipo de activo inválido');
@@ -66,12 +59,9 @@ export async function POST(request) {
 // PUT - Actualizar producto
 export async function PUT(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { id, name, asset_type } = await request.json().catch(() => ({}));
         const productId = parseId(id);
         if (!productId || !validProduct(name, asset_type)) return badRequest('Producto inválido');
@@ -101,12 +91,9 @@ export async function PUT(request) {
 // DELETE - Eliminar producto
 export async function DELETE(request) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session?.user?.id || ['COMPANY', 'UNSET'].includes(session.user.accountMode)) {
-            return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-        }
-
-        const userId = parseInt(session.user.id);
+        const auth = await requirePersonalUser();
+        if (auth.response) return auth.response;
+        const { userId } = auth;
         const { searchParams } = new URL(request.url);
         const id = parseId(searchParams.get('id'));
         if (!id) return badRequest('Identificador inválido');
