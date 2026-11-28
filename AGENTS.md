@@ -50,4 +50,8 @@ Notion refleja el estado real en el momento en que cambia, con un comentario de 
 
 ### Subida a producción
 
-Los cambios van en una rama, con PR en español que cita la tarea por su ID. Antes de fusionar en `main` se pide el visto bueno de Alberto. Al abrir el PR, la tarea pasa a `En revisión`; al desplegar y comprobar en producción, a `Hecho` con la fecha en `Desplegado`.
+Los cambios van en una rama, con PR en español que cita la tarea por su ID. Las comprobaciones automáticas de GitHub (`.github/workflows/ci.yml`) tienen que estar en verde. Antes de fusionar en `main` se pide el visto bueno de Alberto. Al abrir el PR, la tarea pasa a `En revisión`.
+
+Fusionar en `main` no publica nada. Se despliega en el servidor con `scripts/deploy.sh` (ver «Despliegue» en el README): hace una copia previa, construye, migra, comprueba `/api/health` y vuelve atrás solo si algo falla. Tras desplegar y comprobar en producción, la tarea pasa a `Hecho` con la fecha en `Desplegado`.
+
+`npm run test:integration` borra la base de datos de `DATABASE_URL`: úsalo solo con una de pruebas. Los índices únicos parciales de los números de factura solo existen en el SQL de `20261005_business_module`; `scripts/check-migrations.mjs` los da por buenos, pero ninguna migración nueva debe borrarlos.

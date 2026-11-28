@@ -1,0 +1,31 @@
+# Producción en el servidor (/srv/finanzas-app-js). La base de datos es el contenedor
+# finanzas_postgres, de la red app-finanzas_internal. Los secretos están en .env, que no
+# va al repositorio. Despliegue: scripts/deploy.sh.
+services:
+  web:
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-desconocido}
+    image: finanzas-app-js-web:latest
+    container_name: finanzas_next
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      - proxy
+      - app_finanzas_internal
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.finanzasjs.rule=Host(`finanzas.ascenttech.cloud`)"
+      - "traefik.http.routers.finanzasjs.entrypoints=websecure"
+      - "traefik.http.routers.finanzasjs.tls.certresolver=le"
+      - "traefik.http.services.finanzasjs.loadbalancer.server.port=3000"
+
+networks:
+  proxy:
+    external: true
+  app_finanzas_internal:
+    external: true
+    name: app-finanzas_internal
