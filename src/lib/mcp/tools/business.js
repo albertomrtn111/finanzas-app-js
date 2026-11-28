@@ -1,6 +1,5 @@
 import * as z from 'zod';
-import { Prisma } from '@prisma/client';
-import prisma from '../../db.js';
+import prisma, { Prisma } from '../../db.js';
 import { activityInput, appDate, cents, cleanText, closedQuarterMessage, closedQuartersTouched, money, outstanding, summarizeBusiness, todayInMadrid } from '../../business.js';
 import { FLOW_TYPES, MovementError, insertBusinessMovement, replaceAllocations } from '../../businessMovements.js';
 import { deleteMovementLogged, logChange, logCreatedMovements } from '../changeLog.js';

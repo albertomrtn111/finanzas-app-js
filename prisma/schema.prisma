@@ -1,13 +1,18 @@
 // Prisma schema - Mapea las tablas PostgreSQL existentes
 // La aplicación Streamlit usa estas mismas tablas
 
+// Cliente de Prisma 7: se genera como TypeScript en src/generated/prisma (no va al repositorio).
+// Next.js lo compila y Node 22.18+ lo importa directamente en los scripts y las pruebas.
 generator client {
-  provider = "prisma-client-js"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
 }
 
+// La URL de la base de datos está en prisma.config.mjs (CLI) y en src/lib/db.js (app).
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model User {

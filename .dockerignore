@@ -11,3 +11,5 @@ yarn-debug.log*
 pnpm-debug.log*
 test
 docker-compose*.yml
+# Cliente de Prisma generado en local: la imagen lo genera de nuevo.
+src/generated

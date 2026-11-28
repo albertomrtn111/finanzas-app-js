@@ -199,8 +199,8 @@ test('empresa de extremo a extremo', { skip }, async t => {
 });
 
 test('empresa: comprobaciones en la base de datos', { skip: skipDatabase }, async t => {
-    const { PrismaClient } = await import('@prisma/client');
-    const prisma = new PrismaClient();
+    const { createPrismaClient } = await import('../src/lib/db.js');
+    const prisma = createPrismaClient();
     t.after(() => prisma.$disconnect());
 
     await t.test('los dos índices únicos parciales de números de factura existen', async () => {
@@ -210,7 +210,8 @@ test('empresa: comprobaciones en la base de datos', { skip: skipDatabase }, asyn
     });
 
     await t.test('las claves ajenas protegen cuentas y operaciones y mantienen las cascadas previstas', async () => {
-        const rows = await prisma.$queryRaw`SELECT conname, confdeltype FROM pg_constraint WHERE conname IN ('business_movements_account_id_fkey', 'business_allocations_activity_id_fkey', 'business_allocations_movement_id_fkey', 'business_attachments_activity_id_fkey')`;
+        // confdeltype es del tipo "char" de PostgreSQL, que el adaptador de pg de Prisma 7 no sabe leer: se pasa a texto.
+        const rows = await prisma.$queryRaw`SELECT conname, confdeltype::text AS confdeltype FROM pg_constraint WHERE conname IN ('business_movements_account_id_fkey', 'business_allocations_activity_id_fkey', 'business_allocations_movement_id_fkey', 'business_attachments_activity_id_fkey')`;
         // a = NO ACTION, c = CASCADE
         assert.deepEqual(Object.fromEntries(rows.map(r => [r.conname, r.confdeltype])), {
             business_movements_account_id_fkey: 'a', business_allocations_activity_id_fkey: 'a',

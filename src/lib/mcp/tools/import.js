@@ -3,8 +3,7 @@
 // clasificación según el historial y, tras la confirmación del usuario, se guarda todo de una vez.
 import { randomUUID } from 'node:crypto';
 import * as z from 'zod';
-import { Prisma } from '@prisma/client';
-import prisma from '../../db.js';
+import prisma, { Prisma } from '../../db.js';
 import { parseFinancialRecord } from '../../apiValidation.js';
 import { cents } from '../../business.js';
 import { FLOW_TYPES, MovementError, insertBusinessMovement } from '../../businessMovements.js';

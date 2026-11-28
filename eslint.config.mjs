@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Copias de trabajo de los agentes (git worktree) dentro del proyecto.
     ".claude/**",
+    // Cliente de Prisma generado con «npx prisma generate».
+    "src/generated/**",
   ]),
 ]);
 

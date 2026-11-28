@@ -1,7 +1,6 @@
 // Reglas de los movimientos de dinero de empresa, compartidas por la API y el MCP.
 import { randomUUID } from 'node:crypto';
-import { Prisma } from '@prisma/client';
-import prisma from './db.js';
+import prisma, { Prisma } from './db.js';
 import { appDate, cents, cleanText, money, todayInMadrid } from './business.js';
 
 export const FLOW_TYPES = ['OPERATING', 'INVESTING', 'FINANCING', 'TAX', 'OTHER'];

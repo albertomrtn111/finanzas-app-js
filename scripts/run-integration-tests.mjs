@@ -66,8 +66,8 @@ async function waitFor(url, timeoutMs = 60000) {
 
 // 1. Base de datos limpia con todas las migraciones.
 log('Vaciando la base de datos de pruebas y aplicando las migraciones');
-const { PrismaClient } = await import('@prisma/client');
-let prisma = new PrismaClient();
+const { createPrismaClient } = await import('../src/lib/db.js');
+let prisma = createPrismaClient();
 await prisma.$executeRawUnsafe('DROP SCHEMA IF EXISTS public CASCADE');
 await prisma.$executeRawUnsafe('CREATE SCHEMA public');
 await prisma.$disconnect();
@@ -76,7 +76,7 @@ run('npx', ['prisma', 'migrate', 'deploy']);
 // 2. Usuarios de prueba.
 log('Creando los usuarios de prueba');
 const { generateToken, hashToken, displayPrefix } = await import('../src/lib/mcp/tokens.js');
-prisma = new PrismaClient();
+prisma = createPrismaClient();
 const tokens = {};
 for (const [key, email, name] of [['A', 'prueba@nextfinance.test', 'Prueba'], ['B', 'otro@nextfinance.test', 'Otro']]) {
     const user = await prisma.user.create({ data: { email, name, account_mode: 'BOTH', onboarding_step: 5, created_at: new Date() } });

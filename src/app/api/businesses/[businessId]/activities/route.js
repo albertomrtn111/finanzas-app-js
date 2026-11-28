@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { Prisma } from '@prisma/client';
-import prisma from '@/lib/db';
+import prisma, { Prisma } from '@/lib/db';
 import { businessContext, businessRoute, jsonBody, validId } from '@/lib/businessAccess';
 import { activityInput, cents, closedQuarterMessage, closedQuartersTouched } from '@/lib/business';
 import { createLogged, logChange, webContext, withoutRelations } from '@/lib/changeLog';
