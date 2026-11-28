@@ -24,6 +24,7 @@ export function registerGeneralTools(server, ctx) {
                 'Importes en euros. Gastos e ingresos personales siempre en positivo.',
                 'Antes de escribir, confirma con el usuario los datos y comprueba duplicados con las herramientas de búsqueda.',
                 'Cada cambio, hecho desde la IA o desde la web, queda en historial_cambios y se puede revertir con deshacer_cambio.',
+                'Al importar, las reglas de clasificación (ver_reglas_clasificacion) proponen a dónde va cada movimiento; se aprenden de lo que el usuario confirma o corrige.',
                 'No eres asesor financiero: ofrece datos, escenarios y pros y contras, no recomendaciones personalizadas de compra o venta.',
             ],
         };

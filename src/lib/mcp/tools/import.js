@@ -1,6 +1,7 @@
 // Importación de extractos bancarios y capturas de pantalla.
 // La IA lee la imagen o el fichero y pasa las filas; aquí se detectan duplicados, se sugiere la
-// clasificación según el historial y, tras la confirmación del usuario, se guarda todo de una vez.
+// clasificación (primero con las reglas de clasificación y, si ninguna encaja, con el historial) y,
+// tras la confirmación del usuario, se guarda todo de una vez y se aprenden las reglas (Tarea NF-4).
 import { randomUUID } from 'node:crypto';
 import * as z from 'zod';
 import prisma, { Prisma } from '../../db.js';
@@ -8,6 +9,8 @@ import { parseFinancialRecord } from '../../apiValidation.js';
 import { cents } from '../../business.js';
 import { FLOW_TYPES, MovementError, insertBusinessMovement } from '../../businessMovements.js';
 import { logChange } from '../changeLog.js';
+import { DESTINATION_TEXT, bestRule, fromText, parseConcept, sameClassification, suggestionFromRule } from '../../classificationRules.js';
+import { learnClassifications, loadRules } from '../../classificationRuleStore.js';
 import { batchRepeats, buildHistory, conceptTokens, findDuplicates, normalizeConcept, similarity, suggest } from '../importing.js';
 import { dateKey } from '../serialize.js';
 import { READ, ToolError, WRITE, amountText, defineTool, fecha, id, importe, requireBusiness, utcDate } from '../toolkit.js';
@@ -145,6 +148,48 @@ async function loadHistory(ctx, { personal, businessIds }) {
     return { history: buildHistory(examples), accounts };
 }
 
+// Reglas que se pueden usar en esta importación: lo personal solo con espacio personal y las de
+// empresa solo de las empresas indicadas (todas son del usuario).
+function usableRules(rules, { personal, businessIds }) {
+    return rules.filter(rule => (rule.destination === 'BUSINESS' ? businessIds.includes(rule.business_id) : personal));
+}
+
+function classificationOfSuggestion(option) {
+    return { ...option, destination: fromText(DESTINATION_TEXT, option.destino), business_id: option.empresa_id };
+}
+
+// Sugerencia de una fila: la mejor regla y, si ninguna encaja, el historial. Las alternativas salen del
+// historial. Los campos de siempre se mantienen; origen dice de dónde sale.
+function suggestionFor(rules, history, row, sentido) {
+    const fromHistory = suggest(history, row.concepto, sentido);
+    const match = bestRule(rules, parseConcept(row.concepto), sentido === 'salida' ? 'OUT' : 'IN');
+    if (!match) return fromHistory ? { ...fromHistory, origen: 'historial', regla_id: null } : null;
+    const suggestion = suggestionFromRule(match.rule, match.coincidencia);
+    const options = fromHistory ? [{ ...fromHistory, alternativas: undefined }, ...fromHistory.alternativas] : [];
+    const alternativas = options
+        .filter(option => !sameClassification(classificationOfSuggestion(option), match.rule))
+        .slice(0, 2)
+        .map(({ confianza: _c, parecido_a: _p, alternativas: _a, ...option }) => option);
+    return { ...suggestion, alternativas };
+}
+
+// Lo que se aprende de una fila importada: su concepto, el sentido y la clasificación confirmada.
+// Los traspasos entre cuentas de empresa no se aprenden.
+function learningItem(row) {
+    if (row.kind === 'expense') {
+        const { category, subcategory, payment_method, expense_type } = row.value;
+        return { fila: row.fila, concept: row.concepto, direction: 'OUT', classification: { destination: 'EXPENSE', category, subcategory, payment_method, expense_type } };
+    }
+    if (row.kind === 'income') {
+        return { fila: row.fila, concept: row.concepto, direction: 'IN', classification: { destination: 'INCOME', category: row.value.category, source: row.value.source } };
+    }
+    if (row.flow_type === 'TRANSFER') return null;
+    return {
+        fila: row.fila, concept: row.concepto, direction: row.centimos < 0 ? 'OUT' : 'IN',
+        classification: { destination: 'BUSINESS', business_id: row.empresa_id, account_id: row.account_id, flow_type: row.flow_type || 'OPERATING' },
+    };
+}
+
 function accountHint(accounts, cuenta) {
     if (!cuenta) return null;
     const bucket = accounts.get(normalizeConcept(cuenta));
@@ -190,7 +235,8 @@ export function registerImportTools(server, ctx) {
         title: 'Preparar la importación de un extracto o captura',
         description: [
             'Primer paso para importar movimientos bancarios. Lee tú la captura, el PDF o el fichero y pasa cada fila tal cual (fecha, importe con su signo, concepto del banco y, si se ve, la cuenta o tarjeta).',
-            'No guarda nada. Devuelve, por fila: posibles duplicados ya registrados («seguro» o «posible»), filas repetidas dentro del lote, la clasificación sugerida según el historial (con su confianza), facturas de empresa pendientes que podría saldar, y las categorías y cuentas disponibles.',
+            'No guarda nada. Devuelve, por fila: posibles duplicados ya registrados («seguro» o «posible»), filas repetidas dentro del lote, la clasificación sugerida (con su confianza), facturas de empresa pendientes que podría saldar, y las categorías y cuentas disponibles.',
+            'La sugerencia sale primero de las reglas de clasificación del usuario (origen «regla», con regla_id: se aprenden de cada importación y corrección, y las manuales mandan) y, si ninguna encaja, del historial (origen «historial»). Úsala como punto de partida; las reglas se ven y se editan con ver_reglas_clasificacion y gestionar_regla_clasificacion.',
             'Después enseña al usuario una tabla con tu propuesta (personal o empresa, categoría, método de pago…) y, cuando la confirme, llama a importar_movimientos.',
         ].join(' '),
         input: {
@@ -207,9 +253,10 @@ export function registerImportTools(server, ctx) {
         for (const r of rows) utcDate(r.fecha);
 
         const scope = { personal, businessIds };
-        const [existing, { history, accounts }, invoices] = await Promise.all([
-            loadExisting(c, scope, rangeOf(rows)), loadHistory(c, scope), pendingInvoices(businessIds),
+        const [existing, { history, accounts }, invoices, allRules] = await Promise.all([
+            loadExisting(c, scope, rangeOf(rows)), loadHistory(c, scope), pendingInvoices(businessIds), loadRules(prisma, c.userId),
         ]);
+        const rules = usableRules(allRules, scope);
         const repeats = batchRepeats(rows);
         const [expenseCats, incomeCats, methods] = personal ? await Promise.all([
             prisma.expenseCategory.findMany({ where: { user_id: c.userId }, orderBy: { name: 'asc' } }),
@@ -224,7 +271,7 @@ export function registerImportTools(server, ctx) {
                 fila: row.fila, fecha: row.fecha, importe: row.centimos / 100, concepto: row.concepto, cuenta: row.cuenta ?? null, sentido,
                 duplicados,
                 repetida_en_lote: repeats[index] === null ? null : repeats[index] + 1,
-                sugerencia: suggest(history, row.concepto, sentido),
+                sugerencia: suggestionFor(rules, history, row, sentido),
                 cuenta_habitual: accountHint(accounts, row.cuenta),
                 facturas_candidatas: invoiceCandidates(invoices, row),
             };
@@ -238,6 +285,7 @@ export function registerImportTools(server, ctx) {
                 con_duplicado_posible: result.filter(r => r.duplicados.length && !r.duplicados.some(d => d.nivel === 'seguro')).map(r => r.fila),
                 repetidas_en_lote: result.filter(r => r.repetida_en_lote).map(r => r.fila),
                 sin_sugerencia: result.filter(r => !r.sugerencia).map(r => r.fila),
+                con_regla: result.filter(r => r.sugerencia?.origen === 'regla').map(r => r.fila),
             },
             filas: result,
             opciones: {
@@ -247,7 +295,7 @@ export function registerImportTools(server, ctx) {
                 metodos_pago: methods.sort((a, b) => b._count - a._count).map(m => m.payment_method),
                 empresas: businesses.map(b => ({ id: b.id, nombre: b.name, cuentas: b.accounts.map(a => ({ id: a.id, nombre: a.name, tipo: a.kind })) })),
             },
-            siguiente_paso: 'Propón al usuario la clasificación de cada fila (y qué hacer con duplicados y repetidas). Con su visto bueno, llama a importar_movimientos con las filas confirmadas.',
+            siguiente_paso: 'Propón al usuario la clasificación de cada fila (y qué hacer con duplicados y repetidas), partiendo de la sugerencia: las de origen «regla» ya las confirmó o corrigió antes. Con su visto bueno, llama a importar_movimientos con las filas confirmadas: lo que confirme o corrija se aprende para la próxima vez.',
         };
     });
 
@@ -257,7 +305,8 @@ export function registerImportTools(server, ctx) {
             'Guarda de una vez las filas que el usuario ha confirmado, cada una en su destino: gasto o ingreso personal, o cobro/pago/traspaso de una empresa.',
             'Todo o nada: si una fila es inválida, no se guarda ninguna y se indica cuál falla.',
             'Las filas que ya están registradas (duplicado «seguro») o repetidas en el lote se omiten salvo forzar_duplicado o permitir_duplicados.',
-            'Las categorías personales que no existan se crean. Devuelve el lote: con deshacer_cambio y ese lote se deshace la importación entera.',
+            'Las categorías personales que no existan se crean. Con la clasificación de cada fila se crea o actualiza la regla de clasificación de su comercio (salvo que mande una regla manual), para proponerla igual la próxima vez.',
+            'Devuelve el lote: con deshacer_cambio y ese lote se deshace la importación entera, también lo aprendido.',
         ].join(' '),
         input: {
             nombre: z.string().min(1).max(160).describe('Para reconocerla luego, p. ej. «BBVA noviembre 2026»'),
@@ -322,7 +371,7 @@ export function registerImportTools(server, ctx) {
 
         const batchId = `importacion-${randomUUID()}`;
         const needsSerializable = toImport.some(r => r.body?.allocations?.length);
-        const created = toImport.length ? await prisma.$transaction(async tx => {
+        const saved = toImport.length ? await prisma.$transaction(async tx => {
             const done = [];
             const knownCategories = new Set();
             for (const row of toImport) {
@@ -354,6 +403,10 @@ export function registerImportTools(server, ctx) {
                 }
                 done.push({ fila: row.fila, destino: row.destino, empresa_id: row.empresa_id, ids: result.movements.map(m => m.id) });
             }
+            // Aprender de lo importado, en el mismo lote: deshacer la importación deshace también lo aprendido.
+            const items = toImport.map(learningItem).filter(Boolean);
+            const learned = await learnClassifications(tx, { ...c, batchId }, items);
+            const ruleByRow = new Map(items.map((item, index) => [item.fila, learned.resultados[index]]));
             const byRow = new Map(done.map(d => [d.fila, d]));
             const skippedRows = new Map(skipped.map(s => [s.fila, s]));
             await tx.importBatch.create({
@@ -365,18 +418,21 @@ export function registerImportTools(server, ctx) {
                         destino: row.destino, clasificacion: classificationOf(row),
                         resultado: byRow.has(row.fila) ? 'importada' : 'omitida',
                         ids: byRow.get(row.fila)?.ids ?? [], motivo: skippedRows.get(row.fila)?.motivo ?? null,
+                        regla: ruleByRow.get(row.fila) ?? null,
                     })),
                 },
             });
-            return done;
-        }, { timeout: 120000, maxWait: 10000, ...(needsSerializable ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } : {}) }) : [];
+            return { done, learned };
+        }, { timeout: 120000, maxWait: 10000, ...(needsSerializable ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable } : {}) }) : { done: [], learned: null };
 
+        const created = saved.done;
         return {
             lote: created.length ? batchId : null,
             importadas: created.length,
             omitidas: skipped,
             registros: created,
-            como_deshacer: created.length ? `deshacer_cambio con lote «${batchId}» deshace toda la importación` : 'No se ha guardado nada',
+            aprendido: { reglas_creadas: saved.learned?.creadas ?? 0, reglas_actualizadas: saved.learned?.actualizadas ?? 0 },
+            como_deshacer: created.length ? `deshacer_cambio con lote «${batchId}» deshace toda la importación y lo aprendido` : 'No se ha guardado nada',
         };
     });
 
@@ -409,6 +465,7 @@ export const IMPORT_PROMPT = `Quiero importar movimientos bancarios a NextFinanc
 1. Llama a ver_contexto si no lo has hecho.
 2. Lee todas las filas de las imágenes o ficheros: fecha (AAAA-MM-DD), importe con su signo (negativo si sale dinero), concepto exacto del banco y la cuenta o tarjeta si aparece. No inventes filas ni redondees importes; si algo no se lee bien, dímelo.
 3. Llama a preparar_importacion con esas filas.
-4. Enséñame una tabla con: fila, fecha, concepto, importe, destino propuesto (personal o empresa y cuenta), categoría, método de pago y avisos (duplicado, repetida, factura que salda). Usa la sugerencia del historial cuando tenga buena confianza y reutiliza las categorías existentes.
-5. Espera a que confirme o corrija. Luego llama a importar_movimientos solo con las filas aprobadas, con un nombre reconocible para el lote.
-6. Dime cuántas se han importado, cuáles se han omitido y el lote para deshacerla si hace falta.`;
+4. Enséñame una tabla con: fila, fecha, concepto, importe, destino propuesto (personal o empresa y cuenta), categoría, método de pago, de dónde sale la propuesta (regla o historial) y avisos (duplicado, repetida, factura que salda). Parte de la sugerencia: las de origen «regla» salen de mis reglas de clasificación, aprendidas de lo que ya confirmé o corregí (las manuales mandan); las de «historial», de movimientos parecidos. Reutiliza las categorías existentes.
+5. Espera a que confirme o corrija. Luego llama a importar_movimientos solo con las filas aprobadas, con un nombre reconocible para el lote. Lo que confirme o corrija se aprende como regla para la próxima vez.
+6. Dime cuántas se han importado, cuáles se han omitido, qué reglas se han aprendido y el lote para deshacerla si hace falta (deshace también lo aprendido).
+Si quiero ver o cambiar las reglas, usa ver_reglas_clasificacion y gestionar_regla_clasificacion (también están en la web, en Configuración › Reglas de clasificación).`;
