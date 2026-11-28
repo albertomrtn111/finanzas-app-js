@@ -21,6 +21,7 @@ const menuItems = [
     { section: 'Configuración' },
     { label: 'Presupuestos', href: '/presupuestos', icon: '💰' },
     { label: 'Categorías', href: '/categorias', icon: '🏷️' },
+    { label: 'Reglas de clasificación', href: '/reglas', icon: '🧭' },
     { label: 'Productos inversión', href: '/productos', icon: '💼' },
     { label: 'Importar datos', href: '/importar', icon: '📥' },
 ];
