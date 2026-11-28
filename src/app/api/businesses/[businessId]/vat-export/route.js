@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { businessContext } from '@/lib/businessAccess';
+import { businessContext, businessRoute } from '@/lib/businessAccess';
 
 function cell(value) {
     const text = String(value ?? '');
@@ -8,7 +8,7 @@ function cell(value) {
     return `"${safe.replaceAll('"', '""')}"`;
 }
 
-export async function GET(request, { params }) {
+export const GET = businessRoute(async (request, { params }) => {
     const { businessId } = await params;
     const context = await businessContext(businessId);
     if (context.response) return context.response;
@@ -24,4 +24,4 @@ export async function GET(request, { params }) {
     ]));
     const csv = '\uFEFF' + [header, ...rows].map(row => row.map(cell).join(';')).join('\r\n');
     return new NextResponse(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="iva-${period}.csv"`, 'Cache-Control': 'private, no-store' } });
-}
+});

@@ -263,6 +263,40 @@ test('MCP de extremo a extremo', { skip }, async t => {
         assert.equal(moves.filter(m => m.description === 'x').length, 0);
     });
 
+    await t.test('empresa: trimestres de IVA cerrados y cuentas con movimientos', async () => {
+        const today = contexto.hoy;
+        const month = Number(today.slice(5, 7));
+        const start = month - ((month - 1) % 3);
+        const closedDay = start === 1 ? `${Number(today.slice(0, 4)) - 1}-10-15` : `${today.slice(0, 4)}-${String(start - 3).padStart(2, '0')}-15`;
+        const closedQuarter = `${closedDay.slice(0, 4)}-Q${Math.floor((Number(closedDay.slice(5, 7)) - 1) / 3) + 1}`;
+        const old = await call(client, 'guardar_operacion_empresa', {
+            empresa_id: empresaId, direction: 'INCOME', description: 'Factura de un trimestre cerrado', category: 'Servicios', occurred_on: closedDay,
+            counterparty_name: 'Cliente SL', document_kind: 'INVOICE', document_number: 'F-CERRADO', document_date: closedDay, tax_lines: [{ base: 100, vat_rate: 21 }],
+        });
+        assert.equal(old.operacion.vat_period, closedQuarter);
+        const id = old.operacion.id;
+        const refused = await call(client, 'guardar_operacion_empresa', { empresa_id: empresaId, id, tax_lines: [{ base: 120, vat_rate: 21 }] });
+        assert.match(refused.error, /puede estar declarado.*confirmar_trimestre_cerrado: true/s);
+        const renamed = await call(client, 'guardar_operacion_empresa', { empresa_id: empresaId, id, description: 'Factura antigua' });
+        assert.equal(renamed.accion, 'editada');
+        const confirmed = await call(client, 'guardar_operacion_empresa', { empresa_id: empresaId, id, tax_lines: [{ base: 120, vat_rate: 21 }], confirmar_trimestre_cerrado: true });
+        assert.equal(confirmed.operacion.total_amount, '145.2');
+        assert.match((await call(client, 'borrar_operacion_empresa', { empresa_id: empresaId, id })).error, /confirmar_trimestre_cerrado/);
+        assert.equal((await call(client, 'borrar_operacion_empresa', { empresa_id: empresaId, id, confirmar_trimestre_cerrado: true })).borrada, id);
+        const early = await call(client, 'guardar_operacion_empresa', {
+            empresa_id: empresaId, direction: 'INCOME', description: 'Periodo anterior', category: 'Servicios', occurred_on: today,
+            counterparty_name: 'Cliente SL', document_kind: 'INVOICE', document_number: 'F-PERIODO', document_date: today, vat_period: closedQuarter, tax_lines: [{ base: 10, vat_rate: 21 }],
+        });
+        assert.match(early.error, /anterior al trimestre de la fecha de factura/);
+
+        const temp = await call(client, 'gestionar_cuenta_empresa', { empresa_id: empresaId, accion: 'crear', name: 'Temporal', opening_balance: 0, opening_on: '2026-01-01' });
+        const move = await call(client, 'registrar_movimiento_empresa', { empresa_id: empresaId, date: today, amount: 5, description: 'Prueba de cuenta', direction: 'IN', account_id: temp.cuenta.id });
+        assert.match((await call(client, 'gestionar_cuenta_empresa', { empresa_id: empresaId, accion: 'borrar', id: temp.cuenta.id })).error, /tiene movimientos/);
+        assert.match((await call(client, 'deshacer_cambio', { ids: [temp.cambio] })).error, /tiene un movimiento/);
+        await call(client, 'borrar_movimiento_empresa', { empresa_id: empresaId, id: move.movimientos[0].id });
+        assert.equal((await call(client, 'gestionar_cuenta_empresa', { empresa_id: empresaId, accion: 'borrar', id: temp.cuenta.id })).accion, 'borrada');
+    });
+
     await t.test('ofrece la guía de importación como prompt', async () => {
         const { prompts } = await client.listPrompts();
         assert.ok(prompts.some(p => p.name === 'importar_extracto'));

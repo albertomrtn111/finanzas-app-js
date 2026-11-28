@@ -76,6 +76,19 @@ async function renameCategory(tx, userId, type, from, to) {
 
 export { renameCategory };
 
+// Deshacer la creación de una cuenta o de una operación no puede llevarse por delante movimientos,
+// cobros o pagos registrados después (ni siquiera con forzar): hay que quitarlos antes.
+async function assertNothingLinked(tx, entry, id) {
+    if (entry.entity === 'business_account') {
+        const count = await tx.businessMovement.count({ where: { account_id: id, business_id: entry.business_id } });
+        if (count) throw new Error(`La cuenta de empresa ${id} tiene ${count === 1 ? 'un movimiento' : `${count} movimientos`}; bórra${count === 1 ? 'lo' : 'los'} antes de deshacer su creación`);
+    }
+    if (entry.entity === 'business_activity') {
+        const count = await tx.businessAllocation.count({ where: { activity_id: id, business_id: entry.business_id } });
+        if (count) throw new Error(`La operación de empresa ${id} tiene cobros o pagos vinculados; desvincúlalos antes de deshacer su creación`);
+    }
+}
+
 async function revertEntry(tx, entry, force) {
     const config = ENTITIES[entry.entity];
     if (!config) throw new Error(`No sé deshacer cambios de tipo ${entry.entity}`);
@@ -107,7 +120,11 @@ async function revertEntry(tx, entry, force) {
     if (entry.action === 'CREATE') {
         if (!current) return `El ${config.label} ${id} ya no existía`;
         if (!force && !sameRecord(current, entry.after)) throw new Error(`El ${config.label} ${id} ha cambiado después; usa forzar para borrarlo igualmente`);
-        await model.deleteMany({ where: scopeWhere(entry, config, id) });
+        await assertNothingLinked(tx, entry, id);
+        await model.deleteMany({ where: scopeWhere(entry, config, id) }).catch(error => {
+            // La base de datos impide borrar una cuenta con movimientos o una operación con cobros o pagos.
+            throw error?.code === 'P2003' ? new Error(`El ${config.label} ${id} tiene movimientos, cobros o pagos registrados después; bórralos o desvincúlalos antes de deshacer`) : error;
+        });
         return `Borrado el ${config.label} ${id} que se había creado`;
     }
 

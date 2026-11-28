@@ -223,6 +223,14 @@ model BusinessAccount {
 }
 
 // Hechos económicos por devengo, con o sin factura externa.
+//
+// Unicidad de los números de factura: vive en dos índices únicos parciales creados a mano en
+// prisma/migrations/20261005_business_module/migration.sql, que Prisma 5 no sabe representar aquí:
+//   - business_issued_number_key: emitidas (INCOME), número único por empresa.
+//   - business_received_supplier_number_key: recibidas (EXPENSE), número único por proveedor
+//     (NIF o, si falta, nombre, sin distinguir mayúsculas) dentro de la empresa.
+// Si `prisma migrate dev` propone alguna vez borrarlos, no aceptes ese cambio. test/business.integration.test.mjs
+// comprueba que existen después de migrar.
 model BusinessActivity {
   id                  Int       @id @default(autoincrement())
   business_id         Int
@@ -270,7 +278,9 @@ model BusinessMovement {
   created_at     DateTime  @default(now())
 
   business    Business             @relation(fields: [business_id], references: [id], onDelete: Cascade)
-  account     BusinessAccount      @relation(fields: [account_id], references: [id], onDelete: Cascade)
+  // NoAction: una cuenta con movimientos no se puede borrar. Se comprueba al final de la sentencia,
+  // así que borrar la empresa o el usuario entero sigue arrastrando cuentas y movimientos juntos.
+  account     BusinessAccount      @relation(fields: [account_id], references: [id], onDelete: NoAction)
   allocations BusinessAllocation[]
 
   @@index([business_id, date])
@@ -287,11 +297,14 @@ model BusinessAllocation {
   created_at  DateTime @default(now())
 
   business Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
-  activity BusinessActivity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  // NoAction: una operación con cobros o pagos vinculados no se puede borrar.
+  activity BusinessActivity @relation(fields: [activity_id], references: [id], onDelete: NoAction)
+  // Cascade: borrar un cobro o pago borra sus vínculos con facturas, que vuelven a quedar pendientes.
   movement BusinessMovement @relation(fields: [movement_id], references: [id], onDelete: Cascade)
 
   @@unique([activity_id, movement_id])
   @@index([business_id])
+  @@index([movement_id])
   @@map("business_allocations")
 }
 
@@ -305,9 +318,11 @@ model BusinessAttachment {
   created_at  DateTime @default(now())
 
   business Business         @relation(fields: [business_id], references: [id], onDelete: Cascade)
+  // Cascade: los documentos se borran con su operación (la API exige confirmarlo con ?adjuntos=borrar).
   activity BusinessActivity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
 
   @@index([business_id, activity_id])
+  @@index([activity_id])
   @@map("business_attachments")
 }
 

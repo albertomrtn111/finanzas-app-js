@@ -3,7 +3,7 @@
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { activityInput } from '@/lib/business';
+import { activityInput, closedQuarterMessage, isClosedQuarter } from '@/lib/business';
 import { euro, shortDate, dateInput, todayKey, businessRequest, PageHeader, LoadState, EmptyState, useBusinessData } from './ui';
 
 const newLine = () => ({ base: '', vat_treatment: 'DOMESTIC', vat_rate: 0, deductible_percent: 100 });
@@ -60,8 +60,17 @@ export default function ActivityManager({ view = 'all' }) {
         setMessage(''); setSuccess(''); setSaving(true);
         const parsed = activityInput(form);
         if (parsed.error) { setMessage(parsed.error); setSaving(false); return; }
+        const save = confirmed => businessRequest(`/api/businesses/${businessId}/activities${confirmed ? '?trimestre=cerrado' : ''}`, { method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editingId ? { ...form, id: editingId } : form) });
         try {
-            const activity = await businessRequest(`/api/businesses/${businessId}/activities`, { method: editingId ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(editingId ? { ...form, id: editingId } : form) });
+            let activity;
+            try { activity = await save(false); }
+            catch (cause) {
+                // Cambiar una factura de un trimestre de IVA ya terminado hay que confirmarlo.
+                const periods = cause.data?.trimestre_cerrado;
+                if (!Array.isArray(periods) || !periods.length) throw cause;
+                if (!window.confirm(`${closedQuarterMessage(periods, 'editar')}\n\n¿Guardar el cambio igualmente?`)) { setMessage('No se ha guardado el cambio.'); return; }
+                activity = await save(true);
+            }
             let uploadWarning = '';
             if (file) {
                 const upload = new FormData(); upload.append('activityId', String(activity.id)); upload.append('file', file);
@@ -74,11 +83,23 @@ export default function ActivityManager({ view = 'all' }) {
     };
     const remove = async item => {
         const files = item.attachments?.length || 0;
+        const closed = item.document_kind !== 'NONE' && isClosedQuarter(item.vat_period);
         const warning = files ? ` También se borrará${files === 1 ? ' su documento adjunto' : `n sus ${files} documentos adjuntos`} y no se podrá${files === 1 ? '' : 'n'} recuperar. Descárga${files === 1 ? 'lo' : 'los'} antes si quieres conservar${files === 1 ? 'lo' : 'los'}.` : '';
-        if (!window.confirm(`¿Eliminar «${item.description}»?${warning}`)) return;
+        const quarterWarning = closed ? `\n\n${closedQuarterMessage([item.vat_period], 'borrar')}` : '';
+        if (!window.confirm(`¿Eliminar «${item.description}»?${warning}${quarterWarning}`)) return;
         setMessage(''); setSuccess('');
-        try { await businessRequest(`/api/businesses/${businessId}/activities?id=${item.id}${files ? '&adjuntos=borrar' : ''}`, { method: 'DELETE' }); await refresh(); setSuccess('Operación eliminada.'); }
-        catch (cause) { setMessage(cause.message); }
+        const removeWith = confirmedQuarter => businessRequest(`/api/businesses/${businessId}/activities?id=${item.id}${files ? '&adjuntos=borrar' : ''}${confirmedQuarter ? '&trimestre=cerrado' : ''}`, { method: 'DELETE' });
+        try {
+            try { await removeWith(closed); }
+            catch (cause) {
+                // Por si el trimestre acaba de cerrarse según el servidor: se pregunta y se repite.
+                const periods = cause.data?.trimestre_cerrado;
+                if (closed || !Array.isArray(periods) || !periods.length) throw cause;
+                if (!window.confirm(`${closedQuarterMessage(periods, 'borrar')}\n\n¿Eliminarla igualmente?`)) return;
+                await removeWith(true);
+            }
+            await refresh(); setSuccess('Operación eliminada.');
+        } catch (cause) { setMessage(cause.message); }
     };
 
     const title = view === 'invoices' ? 'Facturas registradas' : view === 'pending' ? 'Por cobrar y pagar' : 'Ingresos y gastos';

@@ -15,6 +15,7 @@ export const DELETE = { readOnlyHint: false, destructiveHint: true, idempotentHi
 function friendly(error) {
     if (error instanceof ToolError) return error.message;
     if (error?.code === 'P2002') return 'Ya existe un registro con esos datos (nombre, fecha o número repetido)';
+    if (error?.code === 'P2003') return 'No se puede completar: hay registros vinculados (movimientos, cobros o pagos) o alguno ya no existe';
     if (error?.code === 'P2025') return 'No se ha encontrado el registro';
     if (error?.code === 'P2034') return 'Otro cambio ha modificado los mismos datos. Vuelve a intentarlo';
     return null;

@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
-import { businessContext } from '@/lib/businessAccess';
+import { businessContext, businessRoute, jsonBody } from '@/lib/businessAccess';
 import { cleanText } from '@/lib/business';
 
-export async function GET(_request, { params }) {
+export const GET = businessRoute(async (_request, { params }) => {
     const { businessId } = await params;
     const context = await businessContext(businessId);
     return context.response || NextResponse.json(context.business);
-}
+});
 
-export async function PATCH(request, { params }) {
+export const PATCH = businessRoute(async (request, { params }) => {
     const { businessId } = await params;
     const context = await businessContext(businessId);
     if (context.response) return context.response;
-    const body = await request.json().catch(() => ({}));
+    const body = await jsonBody(request);
     const name = cleanText(body.name, 120, true);
     const legal_name = cleanText(body.legal_name, 160);
     const tax_id = cleanText(body.tax_id, 32);
@@ -24,4 +24,4 @@ export async function PATCH(request, { params }) {
     }
     const business = await prisma.business.update({ where: { id: context.business.id }, data: { name, legal_name: legal_name || null, tax_id: tax_id || null, kind, vat_regime } });
     return NextResponse.json(business);
-}
+});
