@@ -166,7 +166,7 @@ export function registerPersonalTools(server, ctx) {
 
     defineTool(server, ctx, 'guardar_movimiento_personal', {
         title: 'Crear o editar un gasto o ingreso personal',
-        description: 'Sin id crea el registro; con id edita solo los campos indicados. Si la categoría no existe, se crea. Importes siempre positivos. Antes de crear, confirma con el usuario los datos y que no esté ya registrado. Si al editar cambias la categoría, subcategoría o método de pago de un movimiento con concepto en las notas, se aprende la regla de clasificación de ese comercio (salvo que mande una regla manual) y la corrección y lo aprendido van en un lote.',
+        description: 'Sin id crea el registro; con id edita solo los campos indicados. Si la categoría no existe, se crea. Importes siempre positivos. Antes de crear, confirma con el usuario los datos y que no esté ya registrado. Si al editar cambias la categoría, subcategoría, método de pago o tipo de gasto (Fijo o Variable) de un movimiento con concepto en las notas, se aprende la regla de clasificación de ese comercio (salvo que mande una regla manual) y la corrección y lo aprendido van en un lote.',
         input: {
             tipo: tipoMovimiento, id: id.optional(), date: fecha.optional(), amount: importe.optional(),
             category: z.string().max(100).optional(),

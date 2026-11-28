@@ -1,11 +1,11 @@
 // Reglas de clasificación (Tarea NF-4), sin base de datos para poder probarlas:
 //   - qué regla encaja con un concepto del banco y con cuánta confianza;
-//   - qué aprender de cada movimiento confirmado o corregido;
+//   - qué aprender de cada movimiento confirmado o corregido, personal o de empresa;
 //   - cómo deshacer lo aprendido sin bloquear el deshacer de los movimientos;
 //   - validación de las reglas que crea o edita el usuario (web y MCP).
 // Las escrituras en la base de datos están en src/lib/classificationRuleStore.js.
 import { FLOW_TYPES } from './business.js';
-import { conceptTokens, merchantKey, normalizeConcept } from './mcp/importing.js';
+import { conceptTokens, keyFromTokens, merchantKey, normalizeConcept } from './mcp/importing.js';
 
 export const DIRECTIONS = ['OUT', 'IN'];
 export const DESTINATIONS = ['EXPENSE', 'INCOME', 'BUSINESS'];
@@ -24,11 +24,22 @@ const IDENTITY_FIELDS = ['direction', 'merchant_key', 'pattern'];
 const SIGNATURE_FIELDS = [...IDENTITY_FIELDS, 'origin', ...CLASSIFICATION_FIELDS];
 const STAT_FIELDS = ['hits', 'last_used_at', 'example'];
 
-const MAX_EXAMPLE = 240;
+// Longitud máxima de cada texto de una regla (la de su columna). El concepto del banco y las notas son
+// texto que no controlamos: lo que se guarda en una regla nunca pasa de aquí.
+export const MAX_EXAMPLE = 240;
+const LIMITS = { category: 100, subcategory: 100, payment_method: 50, expense_type: 50, source: 150 };
 
 const text = value => (value === undefined || value === null || String(value).trim() === '' ? null : String(value).trim());
+const bounded = (value, field) => text(value)?.slice(0, LIMITS[field]).trim() || null;
 
-// Clasificación con solo los campos que tienen sentido en su destino.
+// Ejemplo del banco que se guarda en la regla: una sola línea, sin caracteres de control ni invisibles
+// y como mucho 240 caracteres. Es un dato que la IA lee, nunca una instrucción.
+export function cleanExample(concept) {
+    return String(concept ?? '').replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_EXAMPLE).trim() || null;
+}
+
+// Clasificación con solo los campos que tienen sentido en su destino. En empresa, category es la de
+// sus operaciones (facturas), opcional.
 export function normalizeClassification(c = {}) {
     const destination = c.destination;
     const business = destination === 'BUSINESS';
@@ -37,11 +48,11 @@ export function normalizeClassification(c = {}) {
         business_id: business ? c.business_id ?? null : null,
         account_id: business ? c.account_id ?? null : null,
         flow_type: business ? c.flow_type || 'OPERATING' : null,
-        category: business ? null : text(c.category),
-        subcategory: destination === 'EXPENSE' ? text(c.subcategory) : null,
-        payment_method: destination === 'EXPENSE' ? text(c.payment_method) : null,
-        expense_type: destination === 'EXPENSE' ? text(c.expense_type) : null,
-        source: destination === 'INCOME' ? text(c.source) : null,
+        category: bounded(c.category, 'category'),
+        subcategory: destination === 'EXPENSE' ? bounded(c.subcategory, 'subcategory') : null,
+        payment_method: destination === 'EXPENSE' ? bounded(c.payment_method, 'payment_method') : null,
+        expense_type: destination === 'EXPENSE' ? bounded(c.expense_type, 'expense_type') : null,
+        source: destination === 'INCOME' ? bounded(c.source, 'source') : null,
     };
 }
 
@@ -62,10 +73,64 @@ export function learningItemFromRecord(kind, record) {
     return { concept, direction: kind === 'expense' ? 'OUT' : 'IN', classification };
 }
 
-// ¿La corrección cambia la clasificación? Gastos: categoría, subcategoría o método de pago. Ingresos: categoría.
+// ¿La corrección cambia la clasificación? Gastos: categoría, subcategoría, método de pago o tipo
+// (fijo o variable). Ingresos: categoría.
+export const CORRECTION_FIELDS = { expense: ['category', 'subcategory', 'payment_method', 'expense_type'], income: ['category'] };
+
 export function classificationChanged(kind, before, after) {
-    const fields = kind === 'expense' ? ['category', 'subcategory', 'payment_method'] : ['category'];
-    return fields.some(field => text(before[field]) !== text(after[field]));
+    return CORRECTION_FIELDS[kind].some(field => text(before[field]) !== text(after[field]));
+}
+
+// --- Empresa --------------------------------------------------------------------------------------
+// Un movimiento de empresa no se edita: su empresa, cuenta, sentido y tipo de flujo son los de cuando se
+// registró. Lo que sí cambia es su categoría, que es la de las facturas (operaciones) que salda: cambia
+// al vincularlo con otras facturas o al cambiar la categoría de una de ellas.
+
+// Categoría de un movimiento según sus vínculos [{ amount, category }]: la de la factura que se lleva
+// más importe (a igualdad, la primera). null si no tiene facturas.
+export function movementCategory(links) {
+    const totals = new Map();
+    for (const link of links) {
+        const category = bounded(link.category, 'category');
+        if (category) totals.set(category, (totals.get(category) || 0) + Math.abs(Number(link.amount) || 0));
+    }
+    let best = null;
+    for (const [category, total] of totals) if (!best || total > best.total) best = { category, total };
+    return best?.category ?? null;
+}
+
+// Lo que se aprende de un movimiento de empresa: su concepto, el sentido (por el signo) y a dónde va.
+// Sin category (undefined), la regla conserva la categoría que ya tenga. Los traspasos no se aprenden.
+export function learningItemFromMovement(movement, category) {
+    if (!movement || movement.flow_type === 'TRANSFER') return null;
+    const concept = text(movement.description);
+    if (!concept) return null;
+    return {
+        concept,
+        direction: Number(movement.amount) < 0 ? 'OUT' : 'IN',
+        classification: {
+            destination: 'BUSINESS', business_id: movement.business_id, account_id: movement.account_id, flow_type: movement.flow_type || 'OPERATING',
+            ...(category === undefined ? {} : { category }),
+        },
+    };
+}
+
+// Corrección al cambiar los vínculos de un movimiento (links con { amount, category }): se aprende si
+// su categoría cambia. Desvincularlo del todo no enseña nada.
+export function linkCorrectionItem(movement, beforeLinks, afterLinks) {
+    const before = movementCategory(beforeLinks);
+    const after = movementCategory(afterLinks);
+    return after && after !== before ? learningItemFromMovement(movement, after) : null;
+}
+
+// Corrección al cambiar la categoría de una operación: cada movimiento vinculado a ella cuya categoría
+// cambie con la nueva. movements: [{ ...movimiento, links: [{ activity_id, amount, category }] }].
+export function activityCorrectionItems(movements, activityId, nextCategory) {
+    return movements.map(movement => linkCorrectionItem(
+        movement,
+        movement.links,
+        movement.links.map(link => (link.activity_id === activityId ? { ...link, category: nextCategory } : link)),
+    )).filter(Boolean);
 }
 
 // --- Coincidencia ---------------------------------------------------------------------------------
@@ -73,7 +138,7 @@ export function classificationChanged(kind, before, after) {
 // Concepto preparado una vez para compararlo con todas las reglas.
 export function parseConcept(concept) {
     const tokens = conceptTokens(concept);
-    return { concept: String(concept || ''), normalized: ` ${normalizeConcept(concept)} `, key: tokens.slice(0, 2).join(' '), tokens };
+    return { concept: String(concept || ''), normalized: ` ${normalizeConcept(concept)} `, key: keyFromTokens(tokens), tokens };
 }
 
 function containsSequence(tokens, needle) {
@@ -145,6 +210,8 @@ export function ruleConfidence(rule, coincidencia = 'exacta') {
 //   - Si la mejor regla ya da esa clasificación, se refuerza (una vez más usada), aunque sea manual.
 //   - Si la mejor regla es manual (y no solo «parecida»), manda ella: no se toca ni se crea otra.
 //   - Si no, se cambia o se crea la regla aprendida de ese comercio exacto, con 1 uso.
+// En empresa, un item sin category (undefined) no dice nada de la categoría: se compara y se guarda con
+// la que ya tenga la regla de esa misma empresa.
 // Devuelve { writes, results }: writes, una escritura por regla ({ type: 'create', data } o
 // { type: 'update', id, before, data }); results, qué pasó con cada item.
 export function planLearning(rules, items, now = new Date()) {
@@ -153,11 +220,14 @@ export function planLearning(rules, items, now = new Date()) {
     const touch = rule => { if (!touched.has(rule)) touched.set(rule, { ...rule }); };
     const results = [];
     for (const item of items) {
-        const classification = normalizeClassification(item.classification);
+        const wanted = normalizeClassification(item.classification);
+        const keepCategory = wanted.destination === 'BUSINESS' && item.classification.category === undefined;
+        const resolve = rule => (keepCategory && rule?.destination === 'BUSINESS' && rule.business_id === wanted.business_id
+            ? { ...wanted, category: rule.category ?? null } : wanted);
         const parsed = parseConcept(item.concept);
-        const example = parsed.concept.slice(0, MAX_EXAMPLE) || null;
+        const example = cleanExample(parsed.concept);
         const match = bestRule(working, parsed, item.direction);
-        if (match && sameClassification(match.rule, classification)) {
+        if (match && sameClassification(match.rule, resolve(match.rule))) {
             touch(match.rule);
             Object.assign(match.rule, { hits: (match.rule.hits || 0) + 1, last_used_at: now, example });
             results.push({ accion: 'reforzada', rule: match.rule });
@@ -176,6 +246,7 @@ export function planLearning(rules, items, now = new Date()) {
             results.push({ accion: 'manda_manual', rule: exact });
             continue;
         }
+        const classification = resolve(exact);
         if (exact) {
             touch(exact);
             Object.assign(exact, classification, { hits: 1, last_used_at: now, example });
@@ -314,6 +385,7 @@ export function parseRuleInput(input, existing = null) {
             if (!value.account_id) throw new Error('Elige la cuenta de la empresa');
             value.flow_type = merged.flow_type || 'OPERATING';
             if (!FLOW_TYPES.includes(value.flow_type)) throw new Error('Tipo de flujo inválido');
+            value.category = optional(merged.category, 'La categoría', MAX.category);
         } else {
             const category = optional(merged.category, 'La categoría', MAX.category);
             if (!category) throw new Error('Indica la categoría');
@@ -339,12 +411,12 @@ export function suggestionFromRule(rule, coincidencia) {
         ? { category: rule.category, subcategory: rule.subcategory, payment_method: rule.payment_method, expense_type: rule.expense_type }
         : rule.destination === 'INCOME'
             ? { category: rule.category, source: rule.source }
-            : { empresa_id: rule.business_id, account_id: rule.account_id, flow_type: rule.flow_type || 'OPERATING' };
+            : { empresa_id: rule.business_id, account_id: rule.account_id, flow_type: rule.flow_type || 'OPERATING', category: rule.category ?? null };
     return {
         destino, ...fields,
         confianza: ruleConfidence(rule, coincidencia),
         veces: rule.hits || 0,
-        parecido_a: rule.example || rule.merchant_key || rule.pattern,
+        parecido_a: cleanExample(rule.example) || rule.merchant_key || rule.pattern,
         origen: 'regla',
         regla_id: rule.id,
         regla_origen: ORIGIN_TEXT[rule.origin] || rule.origin,

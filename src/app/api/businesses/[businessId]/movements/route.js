@@ -3,6 +3,7 @@ import prisma from '@/lib/db';
 import { businessContext, businessRoute, jsonBody, validId } from '@/lib/businessAccess';
 import { createBusinessMovement, replaceAllocations } from '@/lib/businessMovements';
 import { deleteMovementLogged, logChange, logCreatedMovements, webContext } from '@/lib/changeLog';
+import { prepareLinkCorrection } from '@/lib/classificationRuleStore';
 
 export const GET = businessRoute(async (request, { params }) => {
     const { businessId } = await params;
@@ -38,10 +39,15 @@ export const PATCH = businessRoute(async (request, { params }) => {
     const body = await jsonBody(request);
     const id = validId(body.id);
     if (!id) return NextResponse.json({ error: 'Movimiento inválido' }, { status: 400 });
-    // Vincular o desvincular facturas: se guardan los vínculos anteriores para poder restaurarlos.
+    // Vincular o desvincular facturas: se guardan los vínculos anteriores para poder restaurarlos. Si el
+    // movimiento cambia de categoría (la de sus facturas), se aprende la regla de su concepto en el mismo lote.
     const change = webContext(context.userId, 'empresa:movimientos:vincular');
     const result = await replaceAllocations(context.business.id, id, body.allocations, {
-        onReplaced: (tx, { before, after }) => logChange(tx, change, { entity: 'business_movement_links', entityId: id, action: 'UPDATE', before, after, businessId: context.business.id }),
+        onReplaced: async (tx, { movement, before, after }) => {
+            const correction = await prepareLinkCorrection(tx, change, context.business.id, movement, before, after);
+            await logChange(tx, correction.ctx, { entity: 'business_movement_links', entityId: id, action: 'UPDATE', before, after, businessId: context.business.id });
+            await correction.learn();
+        },
     });
     if (result.error) return NextResponse.json({ error: result.error }, { status: result.status });
     const { allocations: _previous, ...movement } = result.movement;

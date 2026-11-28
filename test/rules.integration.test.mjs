@@ -204,7 +204,7 @@ test('reglas de clasificación: aprender de las correcciones, deshacer y aislami
     await t.test('6. B no ve ni usa las reglas de A, ni por la web ni por el MCP', async () => {
         assert.deepEqual(await rulesOf(b), []);
         const listed = await call(b.mcp, 'ver_reglas_clasificacion', { texto: 'mercadona' });
-        assert.deepEqual(listed, { total: 0, reglas: [] });
+        assert.deepEqual([listed.total, listed.reglas], [0, []]);
         assert.equal((await call(b.mcp, 'ver_reglas_clasificacion', {})).total, 0);
         const prep = await call(b.mcp, 'preparar_importacion', { filas: [
             { fecha: '2026-11-21', importe: -20, concepto: MERCADONA },

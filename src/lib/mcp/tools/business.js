@@ -3,6 +3,7 @@ import prisma, { Prisma } from '../../db.js';
 import { activityInput, appDate, cents, cleanText, closedQuarterMessage, closedQuartersTouched, money, outstanding, summarizeBusiness, todayInMadrid } from '../../business.js';
 import { FLOW_TYPES, MovementError, insertBusinessMovement, replaceAllocations } from '../../businessMovements.js';
 import { deleteMovementLogged, logChange, logCreatedMovements } from '../changeLog.js';
+import { correctionSummary, prepareActivityCorrection, prepareLinkCorrection } from '../../classificationRuleStore.js';
 import { dateKey } from '../serialize.js';
 import { DELETE, READ, ToolError, WRITE, amountText, dateFilter, defineTool, fecha, id, importe, requireBusiness } from '../toolkit.js';
 
@@ -160,7 +161,7 @@ export function registerBusinessTools(server, ctx) {
 
     defineTool(server, ctx, 'guardar_operacion_empresa', {
         title: 'Crear o editar una operación de empresa (ingreso o gasto)',
-        description: 'Registra un ingreso o gasto por devengo, con o sin factura externa. Sin id crea; con id edita (los campos no indicados se mantienen). Sin factura (document_kind NONE) el IVA debe ser 0. vat_period no puede ser anterior al trimestre de document_date. Editar los datos fiscales (importes, IVA, fechas, número, contraparte o período) de una factura de un trimestre de IVA ya terminado exige confirmarlo con el usuario y repetir con confirmar_trimestre_cerrado: true; concepto, categoría y vencimiento se cambian sin confirmar. Las fechas futuras van como previsión, no como operación. Los cobros y pagos reales se registran aparte con registrar_movimiento_empresa.',
+        description: 'Registra un ingreso o gasto por devengo, con o sin factura externa. Sin id crea; con id edita (los campos no indicados se mantienen). Sin factura (document_kind NONE) el IVA debe ser 0. vat_period no puede ser anterior al trimestre de document_date. Editar los datos fiscales (importes, IVA, fechas, número, contraparte o período) de una factura de un trimestre de IVA ya terminado exige confirmarlo con el usuario y repetir con confirmar_trimestre_cerrado: true; concepto, categoría y vencimiento se cambian sin confirmar. Las fechas futuras van como previsión, no como operación. Los cobros y pagos reales se registran aparte con registrar_movimiento_empresa. Si al editar cambias la categoría de una operación con cobros o pagos vinculados, se aprende la regla de clasificación del concepto de esos movimientos (salvo que mande una regla manual) y la corrección y lo aprendido van en un lote.',
         input: {
             empresa_id: empresa, id: id.optional(), direction: direccion.optional(),
             description: z.string().max(240).optional(), category: z.string().max(100).optional(),
@@ -192,9 +193,12 @@ export function registerBusinessTools(server, ctx) {
             const paid = existing.allocations.reduce((sum, a) => sum + cents(a.amount), 0);
             if (paid > cents(value.total_amount)) throw new ToolError('El nuevo total es inferior al importe ya cobrado o pagado');
             const { allocations: _a, ...before } = existing;
+            // Cambiar la categoría enseña la regla de los cobros o pagos vinculados, en el mismo lote.
+            const correction = await prepareActivityCorrection(tx, c, business.id, existing, value.category);
             const updated = await tx.businessActivity.update({ where: { id: activityId }, data: value });
-            const log = await logChange(tx, c, { entity: 'business_activity', entityId: activityId, action: 'UPDATE', before, after: updated, businessId: business.id });
-            return { accion: 'editada', cambio: log.id, operacion: updated };
+            const log = await logChange(tx, correction.ctx, { entity: 'business_activity', entityId: activityId, action: 'UPDATE', before, after: updated, businessId: business.id });
+            const learned = await correction.learn();
+            return { accion: 'editada', cambio: log.id, operacion: updated, ...correctionSummary(correction, learned) };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     });
 
@@ -253,20 +257,23 @@ export function registerBusinessTools(server, ctx) {
 
     defineTool(server, ctx, 'vincular_movimiento_empresa', {
         title: 'Vincular un cobro o pago con sus facturas',
-        description: 'Sustituye los vínculos de un movimiento con operaciones (facturas). Lista vacía = desvincular. El importe vinculado no puede superar el movimiento ni el pendiente de cada factura.',
+        description: 'Sustituye los vínculos de un movimiento con operaciones (facturas). Lista vacía = desvincular. El importe vinculado no puede superar el movimiento ni el pendiente de cada factura. Si con los vínculos el movimiento cambia de categoría (la de sus facturas), se aprende la regla de clasificación de su concepto (salvo que mande una regla manual) y los vínculos y lo aprendido van en un lote.',
         input: { empresa_id: empresa, movimiento_id: id, allocations: z.array(z.object({ activity_id: id, amount: importe })).max(30) },
         annotations: WRITE,
     }, async ({ empresa_id, movimiento_id, allocations }, c) => {
         const business = await requireBusiness(c, empresa_id);
-        // Los vínculos y su registro de cambios se guardan en la misma transacción.
+        // Los vínculos, su registro de cambios y lo que se aprende se guardan en la misma transacción.
         let log = null;
+        let summary = {};
         const result = await replaceAllocations(business.id, movimiento_id, allocations.map(a => ({ ...a, amount: amountText(a.amount) })), {
-            onReplaced: async (tx, { before, after }) => {
-                log = await logChange(tx, c, { entity: 'business_movement_links', entityId: movimiento_id, action: 'UPDATE', before, after, businessId: business.id });
+            onReplaced: async (tx, { movement, before, after }) => {
+                const correction = await prepareLinkCorrection(tx, c, business.id, movement, before, after);
+                log = await logChange(tx, correction.ctx, { entity: 'business_movement_links', entityId: movimiento_id, action: 'UPDATE', before, after, businessId: business.id });
+                summary = correctionSummary(correction, await correction.learn());
             },
         });
         if (result.error) throw new ToolError(result.error);
-        return { cambio: log.id, vinculos: result.after };
+        return { cambio: log.id, vinculos: result.after, ...summary };
     });
 
     defineTool(server, ctx, 'borrar_movimiento_empresa', {

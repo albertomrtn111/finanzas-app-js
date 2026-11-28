@@ -3,6 +3,7 @@ import prisma, { Prisma } from '@/lib/db';
 import { businessContext, businessRoute, jsonBody, validId } from '@/lib/businessAccess';
 import { activityInput, cents, closedQuarterMessage, closedQuartersTouched } from '@/lib/business';
 import { createLogged, logChange, webContext, withoutRelations } from '@/lib/changeLog';
+import { prepareActivityCorrection } from '@/lib/classificationRuleStore';
 
 // Cambiar o borrar una factura de un trimestre de IVA ya terminado hay que pedirlo de forma expresa
 // con ?trimestre=cerrado, igual que borrar sus documentos con ?adjuntos=borrar.
@@ -65,8 +66,11 @@ export const PATCH = businessRoute(async (request, { params }) => {
             if (existing.allocations.length && existing.direction !== value.direction) return { status: 409, error: 'Desvincula los cobros o pagos antes de cambiar el tipo' };
             const paid = existing.allocations.reduce((sum, a) => sum + cents(a.amount), 0);
             if (paid > cents(value.total_amount)) return { status: 409, error: 'El nuevo total es inferior al importe ya cobrado o pagado' };
+            // Cambiar la categoría enseña la regla de los cobros o pagos vinculados, en el mismo lote.
+            const correction = await prepareActivityCorrection(tx, webContext(context.userId, 'empresa:operaciones:editar'), context.business.id, existing, value.category);
             const activity = await tx.businessActivity.update({ where: { id }, data: value });
-            await logChange(tx, webContext(context.userId, 'empresa:operaciones:editar'), { entity: 'business_activity', entityId: id, action: 'UPDATE', before: withoutRelations(existing), after: activity, businessId: context.business.id });
+            await logChange(tx, correction.ctx, { entity: 'business_activity', entityId: id, action: 'UPDATE', before: withoutRelations(existing), after: activity, businessId: context.business.id });
+            await correction.learn();
             return { activity };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         return respond(result, ({ activity }) => NextResponse.json(activity));
