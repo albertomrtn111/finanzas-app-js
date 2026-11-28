@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requirePersonalUser } from '@/lib/session';
+import { createLogged, deleteLogged, updateLogged, webContext } from '@/lib/changeLog';
 import prisma from '@/lib/db';
 import { parseFinancialRecord, parseId } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -33,13 +34,11 @@ export async function POST(request) {
         const { value, error } = parseFinancialRecord('investment', data);
         if (error) return badRequest(error);
 
-        const investment = await prisma.investment.create({
-            data: {
-                user_id: userId,
-                ...value,
-                created_at: new Date(),
-            },
-        });
+        const investment = await prisma.$transaction(tx => createLogged(tx, webContext(userId, 'inversiones:crear'), 'investment', {
+            user_id: userId,
+            ...value,
+            created_at: new Date(),
+        }));
 
         return NextResponse.json(investment);
     } catch (error) {
@@ -60,14 +59,12 @@ export async function PUT(request) {
         const { value, error } = parseFinancialRecord('investment', data);
         if (error) return badRequest(error);
 
-        const updated = await prisma.investment.updateMany({
-            where: { id, user_id: userId }, data: value,
-        });
-        if (!updated.count) {
+        const updated = await prisma.$transaction(tx => updateLogged(tx, webContext(userId, 'inversiones:editar'), 'investment', { id, user_id: userId }, value));
+        if (!updated) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
 
-        return NextResponse.json(await prisma.investment.findUnique({ where: { id } }));
+        return NextResponse.json(updated);
     } catch (error) {
         console.error('Error actualizando inversión:', error);
         return NextResponse.json({ error: 'Error al actualizar' }, { status: 500 });
@@ -84,8 +81,8 @@ export async function DELETE(request) {
         const id = parseId(searchParams.get('id'));
         if (!id) return badRequest('Identificador inválido');
 
-        const deleted = await prisma.investment.deleteMany({ where: { id, user_id: userId } });
-        if (!deleted.count) {
+        const deleted = await prisma.$transaction(tx => deleteLogged(tx, webContext(userId, 'inversiones:borrar'), 'investment', { id, user_id: userId }));
+        if (!deleted) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
 

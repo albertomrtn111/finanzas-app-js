@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requirePersonalUser } from '@/lib/session';
+import { createLogged, deleteLogged, ensureCategoryLogged, updateLogged, webContext } from '@/lib/changeLog';
 import prisma from '@/lib/db';
 import { parseFinancialRecord, parseId, parsePagination } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -44,13 +45,11 @@ export async function POST(request) {
         const { value, error } = parseFinancialRecord('expense', data);
         if (error) return badRequest(error);
 
+        // El gasto, su categoría si es nueva y el registro de cambios van en la misma transacción.
+        const change = webContext(userId, 'gastos:crear');
         const expense = await prisma.$transaction(async (tx) => {
-            await tx.expenseCategory.upsert({
-                where: { user_id_name: { user_id: userId, name: value.category } },
-                create: { user_id: userId, name: value.category, created_at: new Date() },
-                update: {},
-            });
-            return tx.expense.create({ data: { user_id: userId, ...value, created_at: new Date() } });
+            await ensureCategoryLogged(tx, change, 'expense', value.category);
+            return createLogged(tx, change, 'expense', { user_id: userId, ...value, created_at: new Date() });
         });
 
         return NextResponse.json(expense);
@@ -72,15 +71,12 @@ export async function PUT(request) {
         const { value, error } = parseFinancialRecord('expense', data);
         if (error) return badRequest(error);
 
+        const change = webContext(userId, 'gastos:editar');
         const expense = await prisma.$transaction(async (tx) => {
-            const updated = await tx.expense.updateMany({ where: { id, user_id: userId }, data: value });
-            if (!updated.count) return null;
-            await tx.expenseCategory.upsert({
-                where: { user_id_name: { user_id: userId, name: value.category } },
-                create: { user_id: userId, name: value.category, created_at: new Date() },
-                update: {},
-            });
-            return tx.expense.findUnique({ where: { id } });
+            const updated = await updateLogged(tx, change, 'expense', { id, user_id: userId }, value);
+            if (!updated) return null;
+            await ensureCategoryLogged(tx, change, 'expense', value.category);
+            return updated;
         });
 
         if (!expense) {
@@ -104,9 +100,9 @@ export async function DELETE(request) {
         const id = parseId(searchParams.get('id'));
         if (!id) return badRequest('Identificador inválido');
 
-        // Verificar que el gasto pertenece al usuario
-        const deleted = await prisma.expense.deleteMany({ where: { id, user_id: userId } });
-        if (!deleted.count) {
+        // Solo si el gasto es del usuario. Queda en el registro de cambios y se puede recuperar.
+        const deleted = await prisma.$transaction(tx => deleteLogged(tx, webContext(userId, 'gastos:borrar'), 'expense', { id, user_id: userId }));
+        if (!deleted) {
             return NextResponse.json({ error: 'Gasto no encontrado' }, { status: 404 });
         }
 

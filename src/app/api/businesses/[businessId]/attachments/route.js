@@ -3,6 +3,9 @@ import prisma from '@/lib/db';
 import { businessContext, businessRoute, validId } from '@/lib/businessAccess';
 import { ATTACHMENT_MIME, FORM_OVERHEAD_BYTES, MAX_ATTACHMENT_BYTES, attachmentQuotaBytes, cleanFilename, contentDisposition, formatMb, matchesMime } from '@/lib/attachments';
 
+// Los documentos adjuntos no pasan por el registro de cambios (src/lib/changeLog.js): el registro no
+// guarda el archivo, así que un documento borrado no se podría recuperar al deshacer.
+
 export const POST = businessRoute(async (request, { params }) => {
     const { businessId } = await params;
     const context = await businessContext(businessId);

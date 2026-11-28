@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requirePersonalUser } from '@/lib/session';
+import { createLogged, deleteLogged, updateLogged, webContext } from '@/lib/changeLog';
 import prisma from '@/lib/db';
 import { parseFinancialRecord, parseId } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -33,13 +34,11 @@ export async function POST(request) {
         const { value, error } = parseFinancialRecord('cash', data);
         if (error) return badRequest(error);
 
-        const snapshot = await prisma.cashSnapshot.create({
-            data: {
-                user_id: userId,
-                ...value,
-                created_at: new Date(),
-            },
-        });
+        const snapshot = await prisma.$transaction(tx => createLogged(tx, webContext(userId, 'efectivo:crear'), 'cash_snapshot', {
+            user_id: userId,
+            ...value,
+            created_at: new Date(),
+        }));
 
         return NextResponse.json(snapshot);
     } catch (error) {
@@ -63,14 +62,12 @@ export async function PUT(request) {
         const { value, error } = parseFinancialRecord('cash', data);
         if (error) return badRequest(error);
 
-        const updated = await prisma.cashSnapshot.updateMany({
-            where: { id, user_id: userId }, data: value,
-        });
-        if (!updated.count) {
+        const updated = await prisma.$transaction(tx => updateLogged(tx, webContext(userId, 'efectivo:editar'), 'cash_snapshot', { id, user_id: userId }, value));
+        if (!updated) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
 
-        return NextResponse.json(await prisma.cashSnapshot.findUnique({ where: { id } }));
+        return NextResponse.json(updated);
     } catch (error) {
         console.error('Error actualizando snapshot:', error);
         if (error.code === 'P2002') return badRequest('Ya existe un saldo para esta cuenta y fecha');
@@ -88,8 +85,8 @@ export async function DELETE(request) {
         const id = parseId(searchParams.get('id'));
         if (!id) return badRequest('Identificador inválido');
 
-        const deleted = await prisma.cashSnapshot.deleteMany({ where: { id, user_id: userId } });
-        if (!deleted.count) {
+        const deleted = await prisma.$transaction(tx => deleteLogged(tx, webContext(userId, 'efectivo:borrar'), 'cash_snapshot', { id, user_id: userId }));
+        if (!deleted) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
 

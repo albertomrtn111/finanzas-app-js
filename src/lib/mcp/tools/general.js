@@ -1,6 +1,6 @@
 import * as z from 'zod';
 import prisma from '../../db.js';
-import { ENTITIES, revertChanges } from '../changeLog.js';
+import { ENTITIES, SOURCES, revertChanges } from '../changeLog.js';
 import { DELETE, READ, ToolError, defineTool, id, todayMadrid } from '../toolkit.js';
 
 export function registerGeneralTools(server, ctx) {
@@ -23,29 +23,36 @@ export function registerGeneralTools(server, ctx) {
             notas: [
                 'Importes en euros. Gastos e ingresos personales siempre en positivo.',
                 'Antes de escribir, confirma con el usuario los datos y comprueba duplicados con las herramientas de búsqueda.',
-                'Cada cambio queda en historial_cambios y se puede revertir con deshacer_cambio.',
+                'Cada cambio, hecho desde la IA o desde la web, queda en historial_cambios y se puede revertir con deshacer_cambio.',
                 'No eres asesor financiero: ofrece datos, escenarios y pros y contras, no recomendaciones personalizadas de compra o venta.',
             ],
         };
     });
 
     defineTool(server, ctx, 'historial_cambios', {
-        title: 'Historial de cambios hechos desde la IA',
-        description: 'Lista los cambios registrados por el MCP (más recientes primero), con su id y lote, para revisarlos o deshacerlos.',
+        title: 'Historial de cambios hechos desde la IA o la web',
+        description: 'Lista los cambios registrados (más recientes primero), tanto los hechos desde la IA (MCP) como desde la web, con su id, lote y origen, para revisarlos o deshacerlos. source es MCP o WEB; origen lo dice en palabras.',
         input: {
             entidad: z.enum(Object.keys(ENTITIES)).optional(), lote: z.string().max(80).optional(),
+            fuente: z.enum(Object.keys(SOURCES)).optional().describe('MCP = cambios hechos desde la IA; WEB = hechos desde la web'),
             solo_activos: z.boolean().default(true).describe('Oculta los cambios ya deshechos'),
             limite: z.number().int().min(1).max(200).default(30),
         },
         annotations: READ,
-    }, async (args, c) => prisma.changeLog.findMany({
-        where: { user_id: c.userId, ...(args.entidad ? { entity: args.entidad } : {}), ...(args.lote ? { batch_id: args.lote } : {}), ...(args.solo_activos ? { reverted_at: null } : {}) },
-        orderBy: { id: 'desc' }, take: args.limite,
-    }));
+    }, async (args, c) => {
+        const entries = await prisma.changeLog.findMany({
+            where: {
+                user_id: c.userId, ...(args.entidad ? { entity: args.entidad } : {}), ...(args.lote ? { batch_id: args.lote } : {}),
+                ...(args.fuente ? { source: args.fuente } : {}), ...(args.solo_activos ? { reverted_at: null } : {}),
+            },
+            orderBy: { id: 'desc' }, take: args.limite,
+        });
+        return entries.map(entry => ({ ...entry, origen: SOURCES[entry.source] || entry.source }));
+    });
 
     defineTool(server, ctx, 'deshacer_cambio', {
-        title: 'Deshacer cambios hechos desde la IA',
-        description: 'Revierte uno o varios cambios (por id) o un lote entero, del más reciente al más antiguo y de una vez. Si el registro se ha modificado después, se detiene salvo que indiques forzar. Confirma antes con el usuario.',
+        title: 'Deshacer cambios hechos desde la IA o la web',
+        description: 'Revierte uno o varios cambios (por id) o un lote entero, del más reciente al más antiguo y de una vez, hechos desde la IA o desde la web. Si el registro se ha modificado después, se detiene salvo que indiques forzar. Confirma antes con el usuario.',
         input: { ids: z.array(id).max(200).optional(), lote: z.string().max(80).optional(), forzar: z.boolean().default(false) },
         annotations: DELETE,
     }, async ({ ids, lote, forzar }, c) => {

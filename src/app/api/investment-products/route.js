@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requirePersonalUser } from '@/lib/session';
+import { createLogged, deleteLogged, logChange, newBatchId, webContext } from '@/lib/changeLog';
 import prisma from '@/lib/db';
 import { parseId } from '@/lib/apiValidation';
 import { badRequest } from '@/lib/apiResponses';
@@ -37,14 +38,12 @@ export async function POST(request) {
 
         if (!validProduct(name, asset_type)) return badRequest('Nombre o tipo de activo inválido');
 
-        const product = await prisma.investmentProduct.create({
-            data: {
-                user_id: userId,
-                name: name.trim(),
-                asset_type: asset_type.trim(),
-                created_at: new Date(),
-            },
-        });
+        const product = await prisma.$transaction(tx => createLogged(tx, webContext(userId, 'productos-inversion:crear'), 'investment_product', {
+            user_id: userId,
+            name: name.trim(),
+            asset_type: asset_type.trim(),
+            created_at: new Date(),
+        }));
 
         return NextResponse.json(product);
     } catch (error) {
@@ -66,6 +65,8 @@ export async function PUT(request) {
         const productId = parseId(id);
         if (!productId || !validProduct(name, asset_type)) return badRequest('Producto inválido');
 
+        // El producto y sus registros de inversión cambian juntos: un solo lote en el registro de cambios.
+        const change = { ...webContext(userId, 'productos-inversion:editar'), batchId: newBatchId() };
         const product = await prisma.$transaction(async (tx) => {
             const existing = await tx.investmentProduct.findFirst({ where: { id: productId, user_id: userId } });
             if (!existing) return null;
@@ -73,10 +74,12 @@ export async function PUT(request) {
                 where: { id: productId },
                 data: { name: name.trim(), asset_type: asset_type.trim() },
             });
-            await tx.investment.updateMany({
-                where: { user_id: userId, account: existing.name },
-                data: { account: updated.name, asset_type: updated.asset_type },
-            });
+            await logChange(tx, change, { entity: 'investment_product', entityId: updated.id, action: 'UPDATE', before: existing, after: updated });
+            const affected = await tx.investment.findMany({ where: { user_id: userId, account: existing.name } });
+            for (const record of affected) {
+                const changed = await tx.investment.update({ where: { id: record.id }, data: { account: updated.name, asset_type: updated.asset_type } });
+                await logChange(tx, change, { entity: 'investment', entityId: record.id, action: 'UPDATE', before: record, after: changed });
+            }
             return updated;
         });
         if (!product) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
@@ -98,8 +101,8 @@ export async function DELETE(request) {
         const id = parseId(searchParams.get('id'));
         if (!id) return badRequest('Identificador inválido');
 
-        const deleted = await prisma.investmentProduct.deleteMany({ where: { id, user_id: userId } });
-        if (!deleted.count) {
+        const deleted = await prisma.$transaction(tx => deleteLogged(tx, webContext(userId, 'productos-inversion:borrar'), 'investment_product', { id, user_id: userId }));
+        if (!deleted) {
             return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
         }
 

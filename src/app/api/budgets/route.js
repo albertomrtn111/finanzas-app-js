@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { requirePersonalUser } from '@/lib/session';
+import { logChange, newBatchId, planBudgetReplacement, webContext } from '@/lib/changeLog';
 import prisma from '@/lib/db';
 import { badRequest } from '@/lib/apiResponses';
 
@@ -44,16 +45,30 @@ export async function POST(request) {
                 !Number.isFinite(Number(amount)) || Number(amount) > 9999999999.99) {
                 return badRequest(`Importe inválido para ${category}`);
             }
-            parsed.push({ user_id: userId, category, monthly_amount: String(amount),
-                created_at: new Date(), updated_at: new Date() });
+            parsed.push({ category, monthly_amount: String(amount) });
         }
 
-        const newBudgets = await prisma.$transaction(async (tx) => {
-            await tx.budget.deleteMany({ where: { user_id: userId } });
-            return tx.budget.createMany({ data: parsed });
+        // La lista enviada sustituye a la guardada. Solo se tocan los presupuestos que cambian, y todos
+        // quedan en un mismo lote del registro de cambios para poder deshacer el guardado entero.
+        const change = { ...webContext(userId, 'presupuestos:guardar'), batchId: newBatchId() };
+        await prisma.$transaction(async (tx) => {
+            const existing = await tx.budget.findMany({ where: { user_id: userId }, orderBy: { id: 'asc' } });
+            const { removed, changed, added } = planBudgetReplacement(existing, parsed);
+            for (const budget of removed) {
+                await tx.budget.delete({ where: { id: budget.id } });
+                await logChange(tx, change, { entity: 'budget', entityId: budget.id, action: 'DELETE', before: budget });
+            }
+            for (const { before, monthly_amount } of changed) {
+                const updated = await tx.budget.update({ where: { id: before.id }, data: { monthly_amount, updated_at: new Date() } });
+                await logChange(tx, change, { entity: 'budget', entityId: before.id, action: 'UPDATE', before, after: updated });
+            }
+            for (const { category, monthly_amount } of added) {
+                const created = await tx.budget.create({ data: { user_id: userId, category, monthly_amount, created_at: new Date(), updated_at: new Date() } });
+                await logChange(tx, change, { entity: 'budget', entityId: created.id, action: 'CREATE', after: created });
+            }
         });
 
-        return NextResponse.json({ message: 'Presupuestos guardados', count: newBudgets.count });
+        return NextResponse.json({ message: 'Presupuestos guardados', count: parsed.length });
     } catch (error) {
         console.error('Error guardando presupuestos:', error);
         return NextResponse.json({ error: 'Error al guardar' }, { status: 500 });

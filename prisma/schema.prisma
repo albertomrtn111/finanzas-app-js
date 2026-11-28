@@ -390,7 +390,8 @@ model McpToken {
   @@map("mcp_tokens")
 }
 
-// Registro de cambios hechos desde el MCP, con el estado anterior y posterior para poder deshacerlos.
+// Registro de cambios hechos desde el MCP (source MCP) y desde la web (source WEB), con el estado
+// anterior y posterior para poder deshacerlos. tool dice la herramienta del MCP o la ruta de la web.
 model ChangeLog {
   id          Int       @id @default(autoincrement())
   user_id     Int

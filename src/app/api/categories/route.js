@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { requirePersonalUser } from '@/lib/session';
+import { createLogged, logChange, webContext } from '@/lib/changeLog';
+
+const ENTITY = { income: 'income_category', expense: 'expense_category' };
 import prisma from '@/lib/db';
 import { badRequest } from '@/lib/apiResponses';
 
@@ -46,24 +49,11 @@ export async function POST(request) {
 
         if (!validType(type) || !validName(name)) return badRequest('Categoría inválida');
 
-        let category;
-        if (type === 'income') {
-            category = await prisma.incomeCategory.create({
-                data: {
-                    user_id: userId,
-                    name: name.trim(),
-                    created_at: new Date(),
-                },
-            });
-        } else {
-            category = await prisma.expenseCategory.create({
-                data: {
-                    user_id: userId,
-                    name: name.trim(),
-                    created_at: new Date(),
-                },
-            });
-        }
+        const category = await prisma.$transaction(tx => createLogged(tx, webContext(userId, 'categorias:crear'), ENTITY[type], {
+            user_id: userId,
+            name: name.trim(),
+            created_at: new Date(),
+        }));
 
         return NextResponse.json(category);
     } catch (error) {
@@ -91,18 +81,19 @@ export async function PUT(request) {
         if (!existing) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
         if (previous === next) return NextResponse.json({ message: 'Categoría actualizada' });
 
-        if (type === 'income') {
-            await prisma.$transaction(async (tx) => {
+        // Igual que el MCP: queda como RENAME y deshacerlo vuelve a renombrar movimientos y presupuestos.
+        const change = webContext(userId, 'categorias:renombrar');
+        await prisma.$transaction(async (tx) => {
+            if (type === 'income') {
                 await tx.incomeCategory.update({ where: { id: existing.id }, data: { name: next } });
                 await tx.income.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
-            });
-        } else {
-            await prisma.$transaction(async (tx) => {
+            } else {
                 await tx.expenseCategory.update({ where: { id: existing.id }, data: { name: next } });
                 await tx.expense.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
                 await tx.budget.updateMany({ where: { user_id: userId, category: previous }, data: { category: next } });
-            });
-        }
+            }
+            await logChange(tx, change, { entity: ENTITY[type], entityId: existing.id, action: 'RENAME', before: { name: previous }, after: { name: next } });
+        });
 
         return NextResponse.json({ message: 'Categoría actualizada' });
     } catch (error) {
@@ -110,6 +101,18 @@ export async function PUT(request) {
         if (error.code === 'P2002') return badRequest('Esta categoría ya existe');
         return NextResponse.json({ error: 'Error al actualizar' }, { status: 500 });
     }
+}
+
+// Borra la categoría por nombre y lo registra. Devuelve false si no existe.
+function deleteCategoryLogged(userId, type, name) {
+    const model = type === 'income' ? 'incomeCategory' : 'expenseCategory';
+    return prisma.$transaction(async (tx) => {
+        const existing = await tx[model].findFirst({ where: { user_id: userId, name } });
+        if (!existing) return false;
+        await tx[model].delete({ where: { id: existing.id } });
+        await logChange(tx, webContext(userId, 'categorias:borrar'), { entity: ENTITY[type], entityId: existing.id, action: 'DELETE', before: existing });
+        return true;
+    });
 }
 
 // DELETE - Eliminar categoría
@@ -134,10 +137,7 @@ export async function DELETE(request) {
                     { status: 400 }
                 );
             }
-            const deleted = await prisma.incomeCategory.deleteMany({
-                where: { user_id: userId, name },
-            });
-            if (!deleted.count) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
+            if (!await deleteCategoryLogged(userId, 'income', name)) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
         } else {
             const inUseExp = await prisma.expense.count({
                 where: { user_id: userId, category: name },
@@ -151,10 +151,7 @@ export async function DELETE(request) {
                     { status: 400 }
                 );
             }
-            const deleted = await prisma.expenseCategory.deleteMany({
-                where: { user_id: userId, name },
-            });
-            if (!deleted.count) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
+            if (!await deleteCategoryLogged(userId, 'expense', name)) return NextResponse.json({ error: 'Categoría no encontrada' }, { status: 404 });
         }
 
         return NextResponse.json({ message: 'Categoría eliminada' });

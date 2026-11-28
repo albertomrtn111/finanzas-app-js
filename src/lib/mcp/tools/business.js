@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../../db.js';
 import { activityInput, appDate, cents, cleanText, closedQuarterMessage, closedQuartersTouched, money, outstanding, summarizeBusiness, todayInMadrid } from '../../business.js';
 import { FLOW_TYPES, MovementError, insertBusinessMovement, replaceAllocations } from '../../businessMovements.js';
-import { logChange } from '../changeLog.js';
+import { deleteMovementLogged, logChange, logCreatedMovements } from '../changeLog.js';
 import { dateKey } from '../serialize.js';
 import { DELETE, READ, ToolError, WRITE, amountText, dateFilter, defineTool, fecha, id, importe, requireBusiness } from '../toolkit.js';
 
@@ -246,11 +246,7 @@ export function registerBusinessTools(server, ctx) {
                 if (error instanceof MovementError) throw new ToolError(error.message);
                 throw error;
             }
-            const batch = created.transfer ? `traspaso-${created.movements[0].transfer_group}` : null;
-            const ids = [];
-            for (const movement of created.movements) {
-                ids.push((await logChange(tx, c, { entity: 'business_movement', entityId: movement.id, action: 'CREATE', after: movement, businessId: business.id, batchId: batch })).id);
-            }
+            const { batchId: batch, ids } = await logCreatedMovements(tx, c, business.id, created);
             return { result: created, batchId: batch, logs: ids };
         }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
         return { accion: result.transfer ? 'traspaso registrado' : 'movimiento registrado', cambios: logs, lote: batchId, movimientos: result.movements };
@@ -263,9 +259,14 @@ export function registerBusinessTools(server, ctx) {
         annotations: WRITE,
     }, async ({ empresa_id, movimiento_id, allocations }, c) => {
         const business = await requireBusiness(c, empresa_id);
-        const result = await replaceAllocations(business.id, movimiento_id, allocations.map(a => ({ ...a, amount: amountText(a.amount) })));
+        // Los vínculos y su registro de cambios se guardan en la misma transacción.
+        let log = null;
+        const result = await replaceAllocations(business.id, movimiento_id, allocations.map(a => ({ ...a, amount: amountText(a.amount) })), {
+            onReplaced: async (tx, { before, after }) => {
+                log = await logChange(tx, c, { entity: 'business_movement_links', entityId: movimiento_id, action: 'UPDATE', before, after, businessId: business.id });
+            },
+        });
         if (result.error) throw new ToolError(result.error);
-        const log = await logChange(prisma, c, { entity: 'business_movement_links', entityId: movimiento_id, action: 'UPDATE', before: result.before, after: result.after, businessId: business.id });
         return { cambio: log.id, vinculos: result.after };
     });
 
@@ -279,16 +280,8 @@ export function registerBusinessTools(server, ctx) {
         return prisma.$transaction(async tx => {
             const movement = await tx.businessMovement.findFirst({ where: { id: movementId, business_id: business.id } });
             if (!movement) throw new ToolError(`No existe el movimiento ${movementId}`);
-            const targets = await tx.businessMovement.findMany({
-                where: { business_id: business.id, ...(movement.transfer_group ? { transfer_group: movement.transfer_group } : { id: movementId }) },
-                include: { allocations: true },
-            });
-            const batchId = targets.length > 1 ? `borrado-traspaso-${movement.transfer_group}` : null;
-            for (const target of targets) {
-                await tx.businessMovement.delete({ where: { id: target.id } });
-                await logChange(tx, c, { entity: 'business_movement', entityId: target.id, action: 'DELETE', before: target, businessId: business.id, batchId });
-            }
-            return { borrados: targets.map(t => t.id), lote: batchId };
+            const { ids, batchId } = await deleteMovementLogged(tx, c, business.id, movement);
+            return { borrados: ids, lote: batchId };
         });
     });
 

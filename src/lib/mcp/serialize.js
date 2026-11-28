@@ -2,11 +2,8 @@
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}T00:00:00\.000Z$/;
 
-// Copia JSON fiel, para guardar en el registro de cambios y poder restaurar.
-export function snapshot(value) {
-    if (value === undefined || value === null) return null;
-    return JSON.parse(JSON.stringify(value));
-}
+// La copia fiel para el registro de cambios vive con él (src/lib/changeRecords.js).
+export { snapshot } from '../changeRecords.js';
 
 // Versión para mostrar a la IA: las fechas sin hora quedan como AAAA-MM-DD.
 export function plain(value) {
