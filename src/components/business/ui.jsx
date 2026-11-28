@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { EmptyState as KitEmptyState, LoadState as KitLoadState } from '@/components/ui';
+import { formatEuro } from '@/lib/moneyFormat';
 
-export const euro = value => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(Number(value || 0));
+export const euro = value => formatEuro(value);
 export const shortDate = value => value ? new Date(value).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
 export const dateInput = value => value ? new Date(value).toISOString().slice(0, 10) : '';
 export const todayKey = () => new Date().toLocaleDateString('en-CA');
@@ -48,10 +50,9 @@ export function StatCard({ label, value, help, tone = '' }) {
     return <div className={`card business-stat ${tone}`}><div className="card-body"><span className="business-stat-label">{label}</span><strong className="business-stat-value">{value}</strong>{help && <span className="business-stat-help">{help}</span>}</div></div>;
 }
 
-export function LoadState({ loading, error, retry }) {
-    if (loading) return <div className="card"><div className="card-body">Cargando datos de empresa…</div></div>;
-    if (error) return <div className="alert alert-danger" role="alert">{error} <button className="btn btn-secondary" onClick={retry}>Reintentar</button></div>;
-    return null;
+// Carga o error con «Reintentar» del kit común. Acepta retry (como hasta ahora) u onRetry.
+export function LoadState({ loading, error, retry, onRetry, label = 'Cargando datos de empresa…', children = null }) {
+    return <KitLoadState loading={loading} error={error} onRetry={onRetry || retry} label={label}>{children}</KitLoadState>;
 }
 
 // Mensajes de un formulario: el error en rojo y la confirmación en verde, nunca mezclados.
@@ -62,6 +63,7 @@ export function FormMessages({ error, success, className = '' }) {
     </>;
 }
 
-export function EmptyState({ text }) {
-    return <div className="business-empty">{text}</div>;
+// Pantalla vacía del kit común dentro del recuadro de empresa.
+export function EmptyState({ text, title, action }) {
+    return <div className="business-empty"><KitEmptyState title={title} text={text} action={action} /></div>;
 }
